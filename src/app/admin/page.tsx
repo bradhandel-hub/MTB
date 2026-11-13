@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { BackIcon } from "@/components/Icons";
+import InviteLink from "@/components/InviteLink";
 import { KindTag } from "@/components/ui";
 import { isAdmin, requireRider } from "@/lib/auth";
 import { all } from "@/lib/db";
@@ -134,12 +135,12 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
       </section>
       <ul className="list">
         {invites.map((inv) => (
-          <li key={inv.code}>
-            <span className="grow">
+          <li key={inv.code} style={{ flexDirection: "column", alignItems: "stretch", gap: 8 }}>
+            <div className="row-between">
               <span className="name">{inv.note ?? "Invite"} <span className="small muted">{inv.uses}/{inv.max_uses} used</span></span>
-              <code className="small ellipsis" style={{ userSelect: "all" }}>{appUrl}/join?invite={inv.code}</code>
-            </span>
-            <form action={deleteInvite}><input type="hidden" name="code" value={inv.code} /><button className="pill" style={{ cursor: "pointer" }}>Revoke</button></form>
+              <form action={deleteInvite}><input type="hidden" name="code" value={inv.code} /><button className="pill" style={{ cursor: "pointer" }}>Revoke</button></form>
+            </div>
+            <InviteLink url={`${appUrl}/join?invite=${inv.code}`} name={inv.note} />
           </li>
         ))}
       </ul>
