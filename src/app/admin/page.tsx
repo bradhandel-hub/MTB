@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { BackIcon } from "@/components/Icons";
 import InviteLink from "@/components/InviteLink";
-import { KindTag } from "@/components/ui";
+import { BottomNav, KindTag } from "@/components/ui";
 import { isAdmin, requireRider } from "@/lib/auth";
 import { all } from "@/lib/db";
 import { feet, miles } from "@/lib/format";
@@ -28,10 +28,11 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
   const [segments, invites, riders, jobs] = await Promise.all([
     all<Segment>("SELECT * FROM segments ORDER BY sort_order, id"),
     all<{ code: string; note: string | null; uses: number; max_uses: number }>("SELECT code, note, uses, max_uses FROM invites ORDER BY created_at DESC"),
-    all<{ id: number; first_name: string; last_name: string; backfill_done: number; rides: number; efforts: number }>(
+    all<{ id: number; first_name: string; last_name: string; backfill_done: number; rides: number; efforts: number; waiting: number }>(
       `SELECT r.id, r.first_name, r.last_name, r.backfill_done,
          (SELECT COUNT(*) FROM activities a WHERE a.rider_id = r.id) AS rides,
-         (SELECT COUNT(*) FROM efforts e WHERE e.rider_id = r.id) AS efforts
+         (SELECT COUNT(*) FROM efforts e WHERE e.rider_id = r.id) AS efforts,
+         (SELECT COUNT(*) FROM jobs j WHERE j.rider_id = r.id) AS waiting
        FROM riders r ORDER BY r.joined_at`,
     ),
     all<{ kind: string; n: number }>("SELECT kind, COUNT(*) AS n FROM jobs GROUP BY kind"),
@@ -43,7 +44,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
   const appUrl = process.env.APP_URL ?? "";
 
   return (
-    <main style={{ paddingBottom: 40 }}>
+    <main style={{ paddingBottom: 100 }}>
       <header className="page-head">
         <Link href="/me" className="icon-btn" aria-label="Back"><BackIcon /></Link>
         <h1 className="display" style={{ fontSize: 28, flex: 1 }}>ADMIN</h1>
@@ -157,11 +158,12 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
           <li key={r.id}>
             <span className="grow">
               <span className="name">{r.first_name} {r.last_name}</span>
-              <span className="small muted">{r.rides} Marin rides · {r.efforts} segment times · {r.backfill_done ? "history imported" : "importing history…"}</span>
+              <span className="small muted">{r.rides} Marin rides · {r.efforts} segment times · {r.waiting ? `${r.waiting} waiting to import` : r.backfill_done ? "all caught up" : "starting import…"}</span>
             </span>
           </li>
         ))}
       </ul>
+      <BottomNav active="me" />
     </main>
   );
 }

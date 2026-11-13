@@ -21,8 +21,6 @@ import {
 type JobKind = "activity" | "backfill";
 type Job = { id: number; kind: JobKind; rider_id: number; ref: number; attempts: number };
 
-const PRIORITY: Record<JobKind, number> = { activity: 0, backfill: 1 };
-
 export async function enqueue(kind: JobKind, riderId: number, ref: number, delaySeconds = 0) {
   await run(
     `INSERT INTO jobs (kind, rider_id, ref, run_after) VALUES (?, ?, ?, datetime('now', ?))
@@ -114,7 +112,7 @@ async function processBackfill(riderId: number, page: number) {
   for (const a of list) {
     if (!isCandidateRide(a) || a.private) continue;
     const exists = await one("SELECT 1 FROM activities WHERE id = ?", [a.id]);
-    if (!exists) await enqueue("activity", riderId, a.id, 60 + page); // after new rides
+    if (!exists) await enqueue("activity", riderId, a.id);
   }
   if (list.length === 100) await enqueue("backfill", riderId, page + 1);
   else await run("UPDATE riders SET backfill_done = 1 WHERE id = ?", [riderId]);
@@ -132,22 +130,39 @@ export async function queueRecheckForSegment(seg: Segment) {
 }
 
 /**
+ * Picks the next job fairly: riders take turns (whoever has had the fewest jobs this
+ * run goes next), so one rider's long history never blocks a new member. Within a
+ * rider, listing their history comes first (one cheap call that finds their rides),
+ * then rides newest-first, so brand-new rides and recent seasons fill in soonest.
+ */
+export async function nextJob(perRider: Map<number, number>): Promise<Job | undefined> {
+  const riders = await all<{ rider_id: number }>(
+    "SELECT DISTINCT rider_id FROM jobs WHERE run_after <= datetime('now') ORDER BY rider_id",
+  );
+  if (!riders.length) return undefined;
+  const rider = riders.reduce((a, b) => ((perRider.get(b.rider_id) ?? 0) < (perRider.get(a.rider_id) ?? 0) ? b : a));
+  return one<Job>(
+    `SELECT id, kind, rider_id, ref, attempts FROM jobs WHERE rider_id = ? AND run_after <= datetime('now')
+     ORDER BY CASE kind WHEN 'backfill' THEN 0 ELSE 1 END, ref DESC LIMIT 1`,
+    [rider.rider_id],
+  );
+}
+
+/**
  * Works through due jobs until `deadlineMs`, the rate-limit budget runs low, or
  * the queue is empty. Safe to call from the cron endpoint and after webhooks.
  */
 export async function runJobs({ deadlineMs = Date.now() + 50_000, max = 50 } = {}) {
   const done = { processed: 0, failed: 0, stoppedFor: "empty" as "empty" | "rate-limit" | "time" | "max" };
   const segments = await activeSegments();
+  const perRider = new Map<number, number>();
   while (true) {
     if (Date.now() > deadlineMs) return { ...done, stoppedFor: "time" as const };
     if (done.processed >= max) return { ...done, stoppedFor: "max" as const };
     if (!hasBudget()) return { ...done, stoppedFor: "rate-limit" as const };
-    const jobs = await all<Job>(
-      `SELECT id, kind, rider_id, ref, attempts FROM jobs WHERE run_after <= datetime('now')
-       ORDER BY CASE kind WHEN 'activity' THEN ${PRIORITY.activity} ELSE ${PRIORITY.backfill} END, run_after, id LIMIT 1`,
-    );
-    const job = jobs[0];
+    const job = await nextJob(perRider);
     if (!job) return done;
+    perRider.set(job.rider_id, (perRider.get(job.rider_id) ?? 0) + 1);
     try {
       if (job.kind === "activity") await processActivity(job.rider_id, job.ref, segments);
       else await processBackfill(job.rider_id, job.ref);

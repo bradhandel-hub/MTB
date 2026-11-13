@@ -41,7 +41,7 @@ export default async function Join({ searchParams }: { searchParams: Promise<{ i
         )}
         <div style={{ position: "absolute", inset: "auto 0 0 0", height: "45%", background: "linear-gradient(to bottom, rgba(14,19,17,0) 0%, #0e1311 92%)", pointerEvents: "none" }} />
         {hero && (
-          <span className="chip-dark small" style={{ position: "absolute", left: 20, top: "max(20px, env(safe-area-inset-top))", fontWeight: 600 }}>
+          <span className="chip-dark small" style={{ position: "absolute", left: 20, top: "calc(env(safe-area-inset-top) + 16px)", fontWeight: 600 }}>
             {hero.name} · Fairfax
           </span>
         )}

@@ -55,7 +55,7 @@ export default async function Ghost({ searchParams }: { searchParams: Promise<{ 
   return (
     <>
       <div style={{ position: "relative" }}>
-        <div style={{ position: "absolute", zIndex: 3, left: 16, right: 16, top: 16, display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ position: "absolute", zIndex: 3, left: 16, right: 16, top: "calc(env(safe-area-inset-top) + 12px)", display: "flex", alignItems: "center", gap: 10 }}>
           <Link href={`/segments/${seg.id}`} className="icon-btn" aria-label="Back to leaderboard"><BackIcon /></Link>
           <div className="chip-dark">
             <div className="display" style={{ fontSize: 20, lineHeight: 1.1 }}>Ghost race · {seg.name}</div>
