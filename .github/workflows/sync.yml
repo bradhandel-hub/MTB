@@ -10,4 +10,6 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ vars.SYNC_ENABLED == 'true' }}
     steps:
-      - run: curl -fsS -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" "${{ secrets.APP_URL }}/api/cron/sync"
+      - name: Run queued Strava imports
+        run: |
+          curl -fsS -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" "${{ secrets.APP_URL }}/api/cron/sync"
