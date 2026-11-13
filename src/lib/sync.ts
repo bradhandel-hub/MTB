@@ -4,6 +4,7 @@
 import { all, one, run } from "./db";
 import { bboxIntersects, bboxOf, MARIN_BBOX, type BBox, type LatLng } from "./geo";
 import { matchSegment } from "./matcher";
+import { HISTORY_START, historyStartEpoch } from "./seasons";
 import { activeSegments, pointsOf, type Segment } from "./segments";
 import {
   EBIKE_TYPES,
@@ -101,16 +102,17 @@ async function processActivity(riderId: number, activityId: number, segments?: S
     if (err instanceof NotFoundError) return deleteActivity(activityId); // deleted or made private
     throw err;
   }
-  if (!isCandidateRide(a) || a.private) return deleteActivity(activityId);
+  if (!isCandidateRide(a) || a.private || localTime(a.start_date_local) < HISTORY_START) return deleteActivity(activityId);
   const stream = await getStreams(riderId, activityId);
   await saveRide(riderId, a, stream, segments);
 }
 
 async function processBackfill(riderId: number, page: number) {
-  const list = await listActivities(riderId, page);
-  // Newest first, so recent seasons fill in before old ones.
+  // Only rides since HISTORY_START. (With `after`, Strava lists oldest first; the
+  // queue still imports each rider's newest rides first.)
+  const list = await listActivities(riderId, page, historyStartEpoch());
   for (const a of list) {
-    if (!isCandidateRide(a) || a.private) continue;
+    if (!isCandidateRide(a) || a.private || localTime(a.start_date_local) < HISTORY_START) continue;
     const exists = await one("SELECT 1 FROM activities WHERE id = ?", [a.id]);
     if (!exists) await enqueue("activity", riderId, a.id);
   }
@@ -127,6 +129,26 @@ export async function queueRecheckForSegment(seg: Segment) {
   );
   for (const r of rides) await enqueue("activity", r.rider_id, r.id, 30);
   return rides.length;
+}
+
+/**
+ * When HISTORY_START is new or has changed: drop rides from before it and restart
+ * every rider's history import with the new start date. Runs once per change.
+ */
+export async function applyHistoryStart() {
+  const current = await one<{ value: string }>("SELECT value FROM settings WHERE key = 'history_start'");
+  if (current?.value === HISTORY_START) return;
+  await run("DELETE FROM efforts WHERE start_local < ?", [HISTORY_START]);
+  await run("DELETE FROM activities WHERE start_local < ?", [HISTORY_START]);
+  await run("DELETE FROM jobs");
+  await run("UPDATE riders SET backfill_done = 0");
+  for (const r of await all<{ id: number }>("SELECT id FROM riders WHERE refresh_token IS NOT NULL")) {
+    await enqueue("backfill", r.id, 1);
+  }
+  await run(
+    "INSERT INTO settings (key, value) VALUES ('history_start', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+    [HISTORY_START],
+  );
 }
 
 /**
@@ -154,6 +176,7 @@ export async function nextJob(perRider: Map<number, number>): Promise<Job | unde
  */
 export async function runJobs({ deadlineMs = Date.now() + 50_000, max = 50 } = {}) {
   const done = { processed: 0, failed: 0, stoppedFor: "empty" as "empty" | "rate-limit" | "time" | "max" };
+  await applyHistoryStart();
   const segments = await activeSegments();
   const perRider = new Map<number, number>();
   while (true) {

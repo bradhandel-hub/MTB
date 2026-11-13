@@ -120,8 +120,9 @@ export type StravaActivity = {
 
 export const getActivity = (riderId: number, id: number) => api<StravaActivity>(riderId, `/activities/${id}`);
 
-export const listActivities = (riderId: number, page: number, perPage = 100) =>
-  api<StravaActivity[]>(riderId, `/athlete/activities?page=${page}&per_page=${perPage}`);
+/** A page of the rider's rides, newest first, optionally only those after a Unix timestamp. */
+export const listActivities = (riderId: number, page: number, after?: number, perPage = 100) =>
+  api<StravaActivity[]>(riderId, `/athlete/activities?page=${page}&per_page=${perPage}${after ? `&after=${after}` : ""}`);
 
 export async function getStreams(riderId: number, id: number) {
   const s = await api<Record<string, { data: unknown[] }>>(

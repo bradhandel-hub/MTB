@@ -33,3 +33,31 @@ describe("job queue fairness", () => {
     expect((await nextJob(new Map()))!.ref).toBe(300);
   });
 });
+
+describe("history start date", () => {
+  beforeEach(() => useDatabase(":memory:"));
+
+  it("drops rides before the start date once and restarts every rider's import", async () => {
+    const { applyHistoryStart } = await import("./sync");
+    const { all } = await import("./db");
+    await run("INSERT INTO riders (id, first_name, refresh_token) VALUES (1, 'A', 't'), (2, 'B', 't')");
+    await run("INSERT INTO segments (id, name, kind, polyline, distance_m, min_lat, min_lng, max_lat, max_lng) VALUES (1, 'S', 'descent', '[]', 1, 0, 0, 0, 0)");
+    for (const [id, date] of [[1, "2024-06-01T09:00:00"], [2, "2026-02-01T09:00:00"]] as const) {
+      await run("INSERT INTO activities (id, rider_id, sport_type, is_ebike, start_local) VALUES (?, 1, 'MountainBikeRide', 0, ?)", [id, date]);
+      await run("INSERT INTO efforts (segment_id, activity_id, rider_id, start_local, elapsed_s, track) VALUES (1, ?, 1, ?, 100, '[]')", [id, date]);
+    }
+    await enqueue("activity", 1, 999);
+
+    await applyHistoryStart();
+    expect(await all("SELECT activity_id FROM efforts")).toEqual([{ activity_id: 2 }]);
+    expect(await all("SELECT kind, rider_id FROM jobs ORDER BY rider_id")).toEqual([
+      { kind: "backfill", rider_id: 1 },
+      { kind: "backfill", rider_id: 2 },
+    ]);
+
+    // Second run does nothing: the date hasn't changed.
+    await enqueue("activity", 1, 1234);
+    await applyHistoryStart();
+    expect((await all("SELECT * FROM jobs")).length).toBe(3);
+  });
+});

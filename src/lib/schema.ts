@@ -70,6 +70,11 @@ CREATE TABLE IF NOT EXISTS efforts (
 CREATE INDEX IF NOT EXISTS efforts_board ON efforts(segment_id, start_local, elapsed_s);
 CREATE INDEX IF NOT EXISTS efforts_rider ON efforts(rider_id, segment_id);
 
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
 -- Work waiting for the Strava API (new rides, history backfill, rematching).
 CREATE TABLE IF NOT EXISTS jobs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

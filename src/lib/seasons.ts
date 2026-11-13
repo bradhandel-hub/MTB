@@ -7,6 +7,16 @@
 // a 6 am ride into the wrong season.
 
 export const WET_START_MONTH = 11; // November
+
+/**
+ * Rides before this date aren't imported. A fixed date (not "the last 12 months") so
+ * every rider, including people who join later, has history from the same day and
+ * the All-time board stays fair. Nov 1, 2025 = start of last year's wet season.
+ */
+export const HISTORY_START = process.env.HISTORY_START || "2025-11-01";
+
+/** HISTORY_START as a Unix timestamp (midnight in Marin), for Strava's `after` filter. */
+export const historyStartEpoch = () => Math.floor(Date.parse(`${HISTORY_START}T00:00:00-08:00`) / 1000);
 export const DRY_START_MONTH = 5; // May
 
 export type RangeKey = string; // "wet-2026" | "dry-2026" | "year-2026" | "all"

@@ -26,6 +26,12 @@ than **120 m** in a row, so cutting a switchback doesn't count. Start and finish
 interpolated between GPS points, so a 1-second Apple Watch and a sparse phone recording
 are timed fairly. Tests are in `src/lib/matcher.test.ts`.
 
+### How far back
+
+Only rides since **Nov 1, 2025** are imported (`HISTORY_START` in `src/lib/seasons.ts`,
+or set the `HISTORY_START` environment variable). It's a fixed date so everyone's
+All-time board starts on the same day. Changing it cleans up and re-imports automatically.
+
 ### Seasons
 
 Wet season runs **Nov 1 to Apr 30** and dry season **May 1 to Oct 31**. "Year" means the
