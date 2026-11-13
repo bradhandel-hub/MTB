@@ -1,0 +1,9 @@
+{
+  "name": "Trail Club",
+  "short_name": "Trail Club",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0E1311",
+  "theme_color": "#0E1311",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

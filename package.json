@@ -1,0 +1,35 @@
+{
+  "name": "trail-club",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Invite-only mountain bike leaderboards for Marin, with seasonal boards and ghost races.",
+  "scripts": {
+    "postinstall": "node scripts/copy-map-worker.mjs",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "tsc --noEmit",
+    "test": "vitest run",
+    "seed:demo": "tsx scripts/seed-demo.ts",
+    "strava:subscribe": "tsx scripts/strava-subscribe.ts"
+  },
+  "dependencies": {
+    "@libsql/client": "0.15.15",
+    "@mapbox/polyline": "1.2.1",
+    "jose": "6.1.0",
+    "maplibre-contour": "0.1.0",
+    "maplibre-gl": "^6.6.0",
+    "next": "15.5.29",
+    "react": "19.1.10",
+    "react-dom": "19.1.10"
+  },
+  "devDependencies": {
+    "@types/mapbox__polyline": "1.0.5",
+    "@types/node": "22.18.0",
+    "@types/react": "19.1.12",
+    "@types/react-dom": "19.1.9",
+    "tsx": "4.20.5",
+    "typescript": "5.9.2",
+    "vitest": "^5.1.0"
+  }
+}

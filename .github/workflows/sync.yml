@@ -1,0 +1,13 @@
+# Works through the Strava backfill queue every 15 minutes (Strava's rate-limit window).
+# Needs repository secrets APP_URL and CRON_SECRET.
+name: Strava sync
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    if: ${{ vars.SYNC_ENABLED == 'true' }}
+    steps:
+      - run: curl -fsS -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" "${{ secrets.APP_URL }}/api/cron/sync"
