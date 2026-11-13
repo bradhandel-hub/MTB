@@ -69,6 +69,12 @@ h1, h2, h3 { margin: 0; }
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 48px; padding: 0 20px; border-radius: 24px; border: none; background: var(--redwood); color: var(--ground); font-weight: 600; font-size: 15px; text-decoration: none; cursor: pointer; }
 .btn.secondary { background: var(--card); color: var(--fog); border: 1px solid var(--line-strong); }
 .btn:disabled, .btn[aria-disabled="true"] { opacity: 0.45; pointer-events: none; }
+/* Pressed feedback for every button and pill. */
+.btn, .pill, .icon-btn { transition: transform 0.08s ease, background-color 0.15s ease, filter 0.15s ease; -webkit-tap-highlight-color: transparent; }
+.btn:active, .pill:active, .icon-btn:active { transform: scale(0.97); filter: brightness(1.25); }
+.spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2.4s; } .btn:active, .pill:active { transform: none; } }
 .icon-btn { width: 40px; height: 40px; border-radius: 20px; background: rgba(14, 19, 17, 0.85); border: none; display: inline-flex; align-items: center; justify-content: center; color: var(--fog); text-decoration: none; }
 
 /* Bottom navigation */

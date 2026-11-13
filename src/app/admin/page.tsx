@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { BackIcon } from "@/components/Icons";
 import InviteLink from "@/components/InviteLink";
+import SubmitButton from "@/components/SubmitButton";
 import { BottomNav, KindTag } from "@/components/ui";
 import { isAdmin, requireRider } from "@/lib/auth";
 import { all } from "@/lib/db";
@@ -21,7 +22,7 @@ const ERRORS: Record<string, string> = {
   webhook: "Couldn’t connect to Strava. Check STRAVA_CLIENT_ID, STRAVA_CLIENT_SECRET, STRAVA_WEBHOOK_VERIFY_TOKEN and APP_URL in Vercel, then redeploy.",
 };
 
-export default async function Admin({ searchParams }: { searchParams: Promise<{ error?: string; added?: string; webhook?: string }> }) {
+export default async function Admin({ searchParams }: { searchParams: Promise<{ error?: string; added?: string; webhook?: string; synced?: string; stopped?: string }> }) {
   const me = await requireRider();
   if (!isAdmin(me.id)) redirect("/");
   const sp = await searchParams;
@@ -50,6 +51,16 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
         <h1 className="display" style={{ fontSize: 28, flex: 1 }}>ADMIN</h1>
       </header>
       {sp.error && <p className="notice warn">{ERRORS[sp.error] ?? "Something went wrong."}</p>}
+      {sp.synced !== undefined && (
+        <p className="notice">
+          ✓ Imported {sp.synced} ride{sp.synced === "1" ? "" : "s"}.{" "}
+          {sp.stopped === "rate-limit"
+            ? "Strava’s 15-minute limit reached. The background sync picks up again automatically."
+            : sp.stopped === "empty"
+              ? "Everything is caught up."
+              : "More waiting. Tap again or let the background sync handle it."}
+        </p>
+      )}
       {sp.added && <p className="notice">Segment added. Riders’ past rides near it are being rechecked.</p>}
 
       <section style={{ padding: "8px 20px" }}>
@@ -61,7 +72,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
             <p style={{ margin: "0 0 10px", fontSize: 14 }}>
               {webhook === undefined ? "Couldn’t check the Strava connection." : "New rides aren’t syncing yet."} Connect once after deploying.
             </p>
-            <button className="btn" style={{ width: "100%" }}>Connect ride sync</button>
+            <SubmitButton className="btn" pendingText="Connecting to Strava…">Connect ride sync</SubmitButton>
           </form>
         )}
       </section>
@@ -73,7 +84,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
             <p style={{ margin: "0 0 10px", fontSize: 14 }}>
               Import the group’s starter segments from Strava: {missingStarters.map((s) => s.name).join(", ")}.
             </p>
-            <button className="btn" style={{ width: "100%" }}>Import {missingStarters.length} segments</button>
+            <SubmitButton className="btn" pendingText="Importing from Strava…">Import {missingStarters.length} segments</SubmitButton>
           </form>
         )}
         <form action={importFromLink} className="card" style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
@@ -83,7 +94,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
           <label className="field">Name in Trail Club (optional)
             <input name="name" placeholder="Uses the Strava name if blank" />
           </label>
-          <button className="btn secondary">Add segment</button>
+          <SubmitButton pendingText="Adding…">Add segment</SubmitButton>
         </form>
       </section>
 
@@ -147,11 +158,11 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
       </ul>
 
       <section style={{ padding: "20px 20px 8px" }}>
-        <h2 className="section-title">Riders &amp; sync</h2>
+        <h2 className="section-title" id="sync">Riders &amp; sync</h2>
         <p className="small muted">
           Strava allows this app {riders.length}/10 connected riders right now. Waiting: {jobs.map((j) => `${j.n} ${j.kind}`).join(", ") || "nothing"}.
         </p>
-        <form action={syncNow}><button className="btn secondary" style={{ width: "100%" }}>Run sync now</button></form>
+        <form action={syncNow}><SubmitButton pendingText="Syncing… (up to 40 seconds)">Run sync now</SubmitButton></form>
       </section>
       <ul className="list">
         {riders.map((r) => (

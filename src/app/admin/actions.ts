@@ -93,8 +93,8 @@ export async function deleteInvite(form: FormData) {
 
 export async function syncNow() {
   await requireAdmin();
-  await runJobs({ deadlineMs: Date.now() + 40_000, max: 60 });
-  revalidatePath("/admin");
+  const r = await runJobs({ deadlineMs: Date.now() + 40_000, max: 60 });
+  redirect(`/admin?synced=${r.processed}&stopped=${r.stoppedFor}`);
 }
 
 /** Points Strava's ride notifications at this deployment (replacing any old address). */
