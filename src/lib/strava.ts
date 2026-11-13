@@ -157,3 +157,39 @@ export async function deauthorize(riderId: number) {
 
 /** "2026-11-08T15:13:42Z" → "2026-11-08T15:13:42" (Strava marks local time with a Z). */
 export const localTime = (s: string) => s.replace(/Z$/, "").slice(0, 19);
+
+// --- Webhook subscription (one per Strava app) ---------------------------------
+
+type Subscription = { id: number; callback_url: string };
+
+const appCreds = () => ({ client_id: env("STRAVA_CLIENT_ID"), client_secret: env("STRAVA_CLIENT_SECRET") });
+
+/** The app's current webhook subscription, if any. */
+export async function getWebhook(): Promise<Subscription | null> {
+  const res = await fetch(`${API}/push_subscriptions?${new URLSearchParams(appCreds())}`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`Strava webhook lookup failed (${res.status})`);
+  const list = (await res.json()) as Subscription[];
+  return list[0] ?? null;
+}
+
+/**
+ * Asks Strava to send ride events to this deployment. Strava immediately calls our
+ * webhook's GET handler to verify it, so the app must already be live at APP_URL.
+ */
+export async function createWebhook(): Promise<Subscription> {
+  const res = await fetch(`${API}/push_subscriptions`, {
+    method: "POST",
+    body: new URLSearchParams({
+      ...appCreds(),
+      callback_url: `${env("APP_URL")}/api/strava/webhook`,
+      verify_token: env("STRAVA_WEBHOOK_VERIFY_TOKEN"),
+    }),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(`Strava webhook setup failed (${res.status}): ${JSON.stringify(json)}`);
+  return json;
+}
+
+export async function deleteWebhook(id: number) {
+  await fetch(`${API}/push_subscriptions/${id}?${new URLSearchParams(appCreds())}`, { method: "DELETE" });
+}

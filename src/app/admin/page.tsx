@@ -7,8 +7,9 @@ import { all } from "@/lib/db";
 import { feet, miles } from "@/lib/format";
 import { STARTER_SEGMENTS } from "@/lib/starter-segments";
 import type { Segment } from "@/lib/segments";
+import { getWebhook } from "@/lib/strava";
 import {
-  createInvite, deleteInvite, deleteSegment, importFromLink, importStarterSegments, moveSegment, syncNow, updateSegment,
+  connectWebhook, createInvite, deleteInvite, deleteSegment, importFromLink, importStarterSegments, moveSegment, syncNow, updateSegment,
 } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -16,9 +17,10 @@ export const dynamic = "force-dynamic";
 const ERRORS: Record<string, string> = {
   link: "That doesn’t look like a Strava segment link.",
   exists: "That segment is already in Trail Club.",
+  webhook: "Couldn’t connect to Strava. Check STRAVA_CLIENT_ID, STRAVA_CLIENT_SECRET, STRAVA_WEBHOOK_VERIFY_TOKEN and APP_URL in Vercel, then redeploy.",
 };
 
-export default async function Admin({ searchParams }: { searchParams: Promise<{ error?: string; added?: string }> }) {
+export default async function Admin({ searchParams }: { searchParams: Promise<{ error?: string; added?: string; webhook?: string }> }) {
   const me = await requireRider();
   if (!isAdmin(me.id)) redirect("/");
   const sp = await searchParams;
@@ -33,6 +35,8 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
     ),
     all<{ kind: string; n: number }>("SELECT kind, COUNT(*) AS n FROM jobs GROUP BY kind"),
   ]);
+  const webhook = await getWebhook().catch(() => undefined);
+  const webhookOk = webhook?.callback_url === `${process.env.APP_URL}/api/strava/webhook`;
   const imported = new Set(segments.map((s) => s.strava_segment_id));
   const missingStarters = STARTER_SEGMENTS.filter((s) => !imported.has(s.stravaId));
   const appUrl = process.env.APP_URL ?? "";
@@ -45,6 +49,20 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
       </header>
       {sp.error && <p className="notice warn">{ERRORS[sp.error] ?? "Something went wrong."}</p>}
       {sp.added && <p className="notice">Segment added. Riders’ past rides near it are being rechecked.</p>}
+
+      <section style={{ padding: "8px 20px" }}>
+        <h2 className="section-title">Strava connection</h2>
+        {webhookOk ? (
+          <p className="notice" style={{ margin: "10px 0 0" }}>✓ New rides sync automatically.</p>
+        ) : (
+          <form action={connectWebhook} className="card" style={{ marginTop: 10 }}>
+            <p style={{ margin: "0 0 10px", fontSize: 14 }}>
+              {webhook === undefined ? "Couldn’t check the Strava connection." : "New rides aren’t syncing yet."} Connect once after deploying.
+            </p>
+            <button className="btn" style={{ width: "100%" }}>Connect ride sync</button>
+          </form>
+        )}
+      </section>
 
       <section style={{ padding: "8px 20px" }}>
         <h2 className="section-title">Segments ({segments.length})</h2>

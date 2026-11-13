@@ -6,7 +6,7 @@ import { isAdmin, randomCode, requireRider } from "@/lib/auth";
 import { all, run } from "@/lib/db";
 import { fromStrava, getSegmentById, insertSegment, parseStravaSegmentId, type SegmentKind } from "@/lib/segments";
 import { STARTER_SEGMENTS } from "@/lib/starter-segments";
-import { getSegment } from "@/lib/strava";
+import { createWebhook, deleteWebhook, getSegment, getWebhook } from "@/lib/strava";
 import { queueRecheckForSegment, runJobs } from "@/lib/sync";
 
 async function requireAdmin() {
@@ -95,4 +95,19 @@ export async function syncNow() {
   await requireAdmin();
   await runJobs({ deadlineMs: Date.now() + 40_000, max: 60 });
   revalidatePath("/admin");
+}
+
+/** Points Strava's ride notifications at this deployment (replacing any old address). */
+export async function connectWebhook() {
+  await requireAdmin();
+  try {
+    const existing = await getWebhook();
+    const wanted = `${process.env.APP_URL}/api/strava/webhook`;
+    if (existing && existing.callback_url !== wanted) await deleteWebhook(existing.id);
+    if (!existing || existing.callback_url !== wanted) await createWebhook();
+  } catch (err) {
+    console.error(err);
+    redirect("/admin?error=webhook");
+  }
+  redirect("/admin?webhook=1");
 }

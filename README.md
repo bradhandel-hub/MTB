@@ -66,8 +66,7 @@ npm run dev   # then open http://localhost:3000/api/dev/login?as=1
    your Strava profile URL).
 3. **Strava** (strava.com/settings/api): set *Authorization Callback Domain* to the Vercel
    domain, without `https://`.
-4. **Webhook:** run `npm run strava:subscribe` with the env vars it lists, then set the
-   `STRAVA_SUBSCRIPTION_ID` it prints in Vercel.
+4. **Ride sync:** sign in and press **Connect ride sync** at the top of Me → Admin.
 5. **Sync:** in GitHub repo settings, add secrets `APP_URL` and `CRON_SECRET`, plus a
    repository variable `SYNC_ENABLED=true`.
 6. Sign in, open **Me → Admin**, click **Import 10 segments**, then create invite links.
