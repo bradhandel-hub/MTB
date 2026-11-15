@@ -94,17 +94,40 @@ export async function saveRide(
   return found;
 }
 
-async function processActivity(riderId: number, activityId: number, segments?: Segment[]) {
+export type RideResult =
+  | { status: "saved"; found: number; date: string }
+  | { status: "skipped"; reason: "not-found" | "not-yours" | "private" | "not-a-ride" | "too-old" | "outside-marin" };
+
+/** Downloads one ride from Strava and (re)times it on every segment. */
+export async function processActivity(riderId: number, activityId: number, segments?: Segment[]): Promise<RideResult> {
   let a: StravaActivity;
   try {
     a = await getActivity(riderId, activityId);
   } catch (err) {
-    if (err instanceof NotFoundError) return deleteActivity(activityId); // deleted or made private
+    if (err instanceof NotFoundError) {
+      await deleteActivity(activityId); // deleted, or hidden as "Only you"
+      return { status: "skipped", reason: "not-found" };
+    }
     throw err;
   }
-  if (!isCandidateRide(a) || a.private || localTime(a.start_date_local) < HISTORY_START) return deleteActivity(activityId);
+  // Someone else's public ride: never file it under this rider.
+  if (a.athlete && a.athlete.id !== riderId) return { status: "skipped", reason: "not-yours" };
+  const reason = a.private
+    ? "private"
+    : !RIDE_TYPES.has(a.sport_type)
+      ? "not-a-ride"
+      : localTime(a.start_date_local) < HISTORY_START
+        ? "too-old"
+        : !isCandidateRide(a)
+          ? "outside-marin"
+          : null;
+  if (reason) {
+    await deleteActivity(activityId);
+    return { status: "skipped", reason };
+  }
   const stream = await getStreams(riderId, activityId);
-  await saveRide(riderId, a, stream, segments);
+  const found = await saveRide(riderId, a, stream, segments);
+  return { status: "saved", found, date: localTime(a.start_date_local) };
 }
 
 async function processBackfill(riderId: number, page: number) {

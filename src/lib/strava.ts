@@ -116,6 +116,7 @@ export type StravaActivity = {
   total_elevation_gain: number;
   start_latlng: LatLng | [] | null;
   private?: boolean;
+  athlete?: { id: number };
 };
 
 export const getActivity = (riderId: number, id: number) => api<StravaActivity>(riderId, `/activities/${id}`);

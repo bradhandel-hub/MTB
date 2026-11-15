@@ -5,11 +5,26 @@ import { isAdmin, requireRider } from "@/lib/auth";
 import { formatGap, formatTime } from "@/lib/format";
 import { profile } from "@/lib/queries";
 import { seasonOf, todayInMarin } from "@/lib/seasons";
-import { leaveTrailClub } from "./actions";
+import SubmitButton from "@/components/SubmitButton";
+import { leaveTrailClub, recheckRide } from "./actions";
 
 export const dynamic = "force-dynamic";
 
-export default async function Me() {
+const RIDE_MESSAGES: Record<string, string> = {
+  "bad-link": "That doesn’t look like a Strava ride link. Open the ride in Strava, tap Share → Copy link.",
+  "not-found": "Strava says that ride doesn’t exist or is set to “Only you”. Make it visible to Followers or Everyone, then try again.",
+  "not-yours": "That ride belongs to someone else. Each rider adds their own rides.",
+  private: "That ride is set to “Only you” on Strava. Change it to Followers or Everyone, then try again.",
+  "not-a-ride": "That activity isn’t a bike ride, so it can’t count.",
+  "too-old": "Trail Club only counts rides since Nov 1, 2025.",
+  "outside-marin": "That ride didn’t start in Marin, so it can’t touch our segments.",
+  busy: "Strava’s rate limit is maxed out right now. Try again in 15 minutes.",
+  error: "Something went wrong talking to Strava. Try again in a minute.",
+};
+
+export default async function Me({ searchParams }: { searchParams: Promise<{ ride?: string }> }) {
+  const { ride } = await searchParams;
+  const saved = ride?.startsWith("saved-") ? Number(ride.slice(6)) : null;
   const me = await requireRider();
   const season = seasonOf(todayInMarin());
   const rows = await profile(me.id, season);
@@ -82,6 +97,26 @@ export default async function Me() {
           })}
         </ul>
       )}
+
+      <section id="missing" style={{ padding: "24px 20px 0" }}>
+        <h2 className="section-title">Missing a ride?</h2>
+        <p className="small muted" style={{ lineHeight: 1.5, margin: "6px 0 10px" }}>
+          Made a ride public or fixed its bike type on Strava? Paste the ride link and it’s re-checked right away.
+        </p>
+        {saved !== null && (
+          <p className="notice" style={{ margin: "0 0 10px" }}>
+            {saved > 0 ? `✓ Ride checked. Found ${saved} segment time${saved === 1 ? "" : "s"}.` : "✓ Ride checked, but it doesn’t include any of our segments."}
+          </p>
+        )}
+        {ride && saved === null && <p className="notice warn" style={{ margin: "0 0 10px" }}>{RIDE_MESSAGES[ride] ?? RIDE_MESSAGES.error}</p>}
+        <form action={recheckRide} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <label className="field">
+            Strava ride link
+            <input name="link" inputMode="url" placeholder="https://www.strava.com/activities/…" required />
+          </label>
+          <SubmitButton pendingText="Checking with Strava…">Check this ride</SubmitButton>
+        </form>
+      </section>
 
       <div style={{ padding: "28px 20px 20px", display: "flex", flexDirection: "column", gap: 10 }}>
         {isAdmin(me.id) && <Link href="/admin" className="btn secondary">Admin</Link>}
