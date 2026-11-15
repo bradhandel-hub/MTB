@@ -43,6 +43,11 @@ export default async function SegmentPage({ params, searchParams }: { params: Pr
           <KindTag kind={seg.kind} />
           <span className="small muted">{miles(seg.distance_m)} · {elev}</span>
         </div>
+        {seg.strava_segment_id && (
+          <a className="small" href={`https://www.strava.com/segments/${seg.strava_segment_id}`} target="_blank" rel="noreferrer" style={{ color: "var(--muted)" }}>
+            Official Strava segment #{seg.strava_segment_id} ↗{seg.hazardous ? " (Strava doesn’t time it, so Trail Club does)" : ""}
+          </a>
+        )}
         <h1 className="display" style={{ fontSize: 36, lineHeight: 1 }}>{seg.name}</h1>
       </div>
       <div style={{ marginTop: 14 }}>

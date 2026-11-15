@@ -3,29 +3,26 @@ export default function TimingNote() {
   return (
     <details className="timing-note">
       <summary>How timing works vs. Strava</summary>
-      <p>
-        Trail Club times every ride itself from your GPS track, so times usually match Strava or land within a second
-        or two.
-      </p>
       <ul>
         <li>
-          <b>One official version of each trail.</b> Strava has several versions of most segments. We use one, so
-          everyone is timed on the same line.
+          <b>Times come from Strava.</b> Each Trail Club segment is one specific Strava segment (linked at the top of
+          its page), and your time is Strava’s time for that run. It should match your history on that segment.
         </li>
         <li>
-          <b>Race-style timing.</b> The clock starts the last time you cross the start line heading down the trail and
-          stops the first time you cross the finish. Waiting for friends at the top doesn’t count.
+          <b>One official version of each trail.</b> Strava has several versions of most trails. If yours look
+          different, check you’re comparing the same segment.
         </li>
         <li>
-          <b>Fair to every device.</b> We estimate the exact moment you crossed each line between GPS points, so a phone
-          isn’t penalized next to an Apple Watch.
+          <b>Trails Strava won’t time</b> (some steep descents Strava marks “hazardous”) are timed by Trail Club from
+          your GPS, race-style: start line to finish line.
         </li>
         <li>
-          <b>Ride the actual trail.</b> Cutting a switchback or taking a shortcut doesn’t count.
+          <b>Which rides count:</b> bike rides since Nov 1, 2025, shared with Followers or Everyone. Rides set to “Only
+          you” stay private.
         </li>
       </ul>
       <p>
-        Time looks off or a ride is missing? Paste its Strava link into <a href="/me#missing">Me → Missing a ride?</a>
+        Ride missing or a time looks off? Paste its Strava link into <a href="/me#missing">Me → Missing a ride?</a>
       </p>
     </details>
   );

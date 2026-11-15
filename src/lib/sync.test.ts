@@ -65,7 +65,7 @@ describe("history start date", () => {
 describe("timing rule changes", () => {
   beforeEach(() => useDatabase(":memory:"));
 
-  it("re-checks rides with segment times once, then never again", async () => {
+  it("re-imports every ride once, then never again", async () => {
     const { applyMatcherVersion } = await import("./sync");
     const { all } = await import("./db");
     await run("INSERT INTO riders (id, first_name, refresh_token) VALUES (1, 'A', 't')");
@@ -74,9 +74,58 @@ describe("timing rule changes", () => {
     await run("INSERT INTO efforts (segment_id, activity_id, rider_id, start_local, elapsed_s, track) VALUES (1, 7, 1, '2026-11-14T09:10:00', 120, '[]')");
 
     await applyMatcherVersion();
-    expect(await all("SELECT kind, ref FROM jobs")).toEqual([{ kind: "activity", ref: 7 }]);
+    // Every imported ride is re-timed and every rider's history is listed again.
+    expect(await all("SELECT kind, ref FROM jobs ORDER BY kind")).toEqual([
+      { kind: "activity", ref: 7 },
+      { kind: "backfill", ref: 1 },
+    ]);
     await run("DELETE FROM jobs");
     await applyMatcherVersion();
     expect(await all("SELECT * FROM jobs")).toEqual([]);
+  });
+});
+
+describe("saving a ride", () => {
+  beforeEach(() => useDatabase(":memory:"));
+
+  const ride = { id: 42, name: "Ride", sport_type: "MountainBikeRide", start_date_local: "2026-07-11T08:00:00Z", start_date: "2026-07-11T15:00:00Z", distance: 20000, moving_time: 5000, total_elevation_gain: 600 };
+  const line = [[37.99, -122.6], [37.98, -122.59]];
+
+  async function addSegment(stravaId: number | null, hazardous = 0) {
+    await run(
+      `INSERT INTO segments (name, kind, strava_segment_id, polyline, distance_m, min_lat, min_lng, max_lat, max_lng, hazardous)
+       VALUES ('Split Rock', 'descent', ?, ?, 1400, 37.98, -122.6, 37.99, -122.59, ?)`,
+      [stravaId, JSON.stringify(line), hazardous],
+    );
+  }
+
+  it("uses Strava's own time when Strava timed the segment", async () => {
+    const { saveRide } = await import("./sync");
+    const { all } = await import("./db");
+    await run("INSERT INTO riders (id, first_name, refresh_token) VALUES (1, 'G', 't')");
+    await addSegment(9087084);
+    const saved = await saveRide(
+      1,
+      { ...ride, segment_efforts: [{ segment: { id: 9087084 }, elapsed_time: 729, start_date: "2026-07-11T15:20:00Z", start_date_local: "2026-07-11T08:20:00Z" }] },
+      { latlng: [], time: [] }, // e.g. GPS hidden by a privacy zone
+    );
+    expect(saved).toEqual([{ segment: "Split Rock", elapsed: 729, source: "strava" }]);
+    expect(await all("SELECT elapsed_s, start_local FROM efforts")).toEqual([{ elapsed_s: 729, start_local: "2026-07-11T08:20:00" }]);
+  });
+
+  it("trusts Strava when it says the ride didn't include the segment", async () => {
+    const { saveRide } = await import("./sync");
+    await run("INSERT INTO riders (id, first_name, refresh_token) VALUES (1, 'G', 't')");
+    await addSegment(9087084);
+    expect(await saveRide(1, { ...ride, segment_efforts: [] }, { latlng: [], time: [] })).toEqual([]);
+  });
+
+  it("keeps rides whose start point Strava hides (privacy zones)", async () => {
+    const { isCandidateRide } = await import("./sync");
+    expect(isCandidateRide({ sport_type: "MountainBikeRide", start_latlng: [] })).toBe(true);
+    expect(isCandidateRide({ sport_type: "MountainBikeRide", start_latlng: null })).toBe(true);
+    expect(isCandidateRide({ sport_type: "MountainBikeRide", start_latlng: [37.98, -122.59] })).toBe(true);
+    expect(isCandidateRide({ sport_type: "MountainBikeRide", start_latlng: [34.05, -118.24] })).toBe(false);
+    expect(isCandidateRide({ sport_type: "Run", start_latlng: [37.98, -122.59] })).toBe(false);
   });
 });

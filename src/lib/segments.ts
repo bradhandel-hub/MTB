@@ -21,6 +21,7 @@ export type Segment = {
   max_lng: number;
   sort_order: number;
   active: number;
+  hazardous: number;
 };
 
 /**
@@ -43,7 +44,7 @@ export function fromStrava(s: StravaSegment) {
   const net = (s.average_grade / 100) * distance;
   const gain = s.total_elevation_gain ?? Math.max(0, net);
   const loss = Math.max(0, gain - net);
-  return { name: s.name, points, distance, gain, loss, kind: classify(distance, net) };
+  return { name: s.name, points, distance, gain, loss, kind: classify(distance, net), hazardous: !!s.hazardous };
 }
 
 export async function insertSegment(input: {
@@ -54,13 +55,14 @@ export async function insertSegment(input: {
   loss: number;
   kind: SegmentKind;
   stravaId?: number | null;
+  hazardous?: boolean;
 }) {
   const b = bboxOf(input.points);
   const order = (await one<{ n: number }>("SELECT COALESCE(MAX(sort_order), 0) + 1 AS n FROM segments"))!.n;
   const r = await run(
     `INSERT INTO segments (name, kind, strava_segment_id, polyline, distance_m, elev_gain_m, elev_loss_m,
-       min_lat, min_lng, max_lat, max_lng, sort_order)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+       min_lat, min_lng, max_lat, max_lng, sort_order, hazardous)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
     [
       input.name,
       input.kind,
@@ -74,6 +76,7 @@ export async function insertSegment(input: {
       b.maxLat,
       b.maxLng,
       order,
+      input.hazardous ? 1 : 0,
     ],
   );
   return Number(r.rows[0].id);

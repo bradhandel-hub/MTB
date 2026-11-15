@@ -18,6 +18,14 @@ function getClient(): Client {
 
 async function migrate(c: Client) {
   await c.executeMultiple(SCHEMA);
+  // Columns added after launch. SQLite has no "ADD COLUMN IF NOT EXISTS".
+  for (const sql of ["ALTER TABLE segments ADD COLUMN hazardous INTEGER NOT NULL DEFAULT 0"]) {
+    try {
+      await c.execute(sql);
+    } catch (err) {
+      if (!String(err).includes("duplicate column")) throw err;
+    }
+  }
 }
 
 export async function db(): Promise<Client> {

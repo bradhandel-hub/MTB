@@ -17,7 +17,15 @@ was won or lost.
 4. Leaderboards are worked out from date ranges, so moving a season boundary
    (`src/lib/seasons.ts`) re-sorts history automatically.
 
-### Segment matching rules
+### Where times come from
+
+Each segment is imported from a specific Strava segment. When Strava has timed a ride on
+it, **Trail Club uses Strava's time**, so it matches the rider's Strava history. GPS
+hidden by a privacy zone doesn't matter. Strava doesn't time segments it flags as
+hazardous, so for those, and for any segment without Strava data, Trail Club times
+the ride itself with the rules below.
+
+### Segment matching rules (our own timing)
 
 A ride counts on a segment when it passes within **30 m** of the start, then passes
 checkpoints every **25 m** along our line, in order and within **40 m**, then passes the

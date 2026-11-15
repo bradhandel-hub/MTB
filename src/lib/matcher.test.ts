@@ -182,3 +182,15 @@ describe("timing like a race gate", () => {
     expect(Math.max(...errors)).toBeLessThan(1.5);
   });
 });
+
+describe("passing the trailhead more than once", () => {
+  it("times from the pass where the rider actually dropped in", () => {
+    // Rides past the top of the trail, does a ~600 m loop on the fire road (about
+    // 2 minutes), comes back to the top and drops in.
+    const loop = [m(30, 20), m(150, 120), m(-50, 220), m(-150, 80), m(-100, 30)];
+    const path = [...approach, m(10, -1), ...loop, ...approach.slice(1), ...trail.slice(1), ...exit];
+    const { stream } = ride(path, { speed: 5, noise: 3, seed: 21 });
+    const [e] = matchSegment(trail, stream);
+    expect(Math.abs(e.elapsed - trailLength / 5)).toBeLessThan(1.5);
+  });
+});

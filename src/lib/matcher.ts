@@ -11,7 +11,7 @@
 // a 1 s watch and a sparse phone recording are timed fairly.
 
 /** Bump when timing rules change; stored times are then recalculated from Strava. */
-export const MATCHER_VERSION = 2;
+export const MATCHER_VERSION = 3;
 
 import { haversine, makeLineIndex, makeProjector, type LatLng } from "./geo";
 
@@ -182,15 +182,30 @@ function followsLine(stream: Stream, s: number, e: number, cps: LatLng[], spacin
 function buildTrack(stream: Stream, s: number, e: number, t0: number, elapsed: number, line: ReturnType<typeof makeLineIndex>) {
   const track: [number, number][] = [[0, 0]];
   let prev = 0;
+  let prevT = 0;
   for (let i = s + 1; i < e; i++) {
     const t = stream.time[i] - t0;
     if (t <= 0 || t >= elapsed) continue;
-    const { along } = line.project(stream.latlng[i], prev - 30, prev + 250);
+    // Look further ahead after a GPS gap (e.g. a privacy zone), up to 20 m/s.
+    const { along } = line.project(stream.latlng[i], prev - 30, prev + 250 + 20 * (t - prevT));
+    prevT = t;
     prev = Math.max(prev, Math.min(along, line.length));
     track.push([Math.round(prev * 10) / 10, Math.round(t * 10) / 10]);
   }
   track.push([Math.round(line.length * 10) / 10, elapsed]);
   return track;
+}
+
+/**
+ * Ghost-race track for an effort whose timing is already known (from Strava):
+ * the rider's progress along the segment between tStart and tStart + elapsed.
+ */
+export function trackForWindow(segment: LatLng[], stream: Stream, tStart: number, elapsed: number): [number, number][] {
+  const line = makeLineIndex(segment);
+  const s = Math.max(0, stream.time.findIndex((t) => t >= tStart) - 1);
+  let e = stream.time.findIndex((t) => t >= tStart + elapsed);
+  if (e === -1) e = stream.time.length;
+  return buildTrack(stream, s, e, tStart, elapsed, line);
 }
 
 export function matchSegment(segment: LatLng[], stream: Stream): MatchedEffort[] {
@@ -209,9 +224,11 @@ export function matchSegment(segment: LatLng[], stream: Stream): MatchedEffort[]
   for (let i = 1; i < stream.latlng.length; i++) rideCum.push(rideCum[i - 1] + haversine(stream.latlng[i - 1], stream.latlng[i]));
 
   const efforts: MatchedEffort[] = [];
+  const starts = gatePasses(stream.latlng, start, START_GATE);
   let searchFrom = 0;
-  for (const s of gatePasses(stream.latlng, start, START_GATE)) {
-    if (s.index < searchFrom) continue;
+  for (const first of starts) {
+    if (first.index < searchFrom) continue;
+    let s = first;
     // The finish must come after real progress (handles loops where start = finish).
     const ends = gatePasses(stream.latlng, end, START_GATE, s.index + 1).filter((g) => {
       const travelled = rideCum[g.index] - rideCum[s.index];
@@ -219,6 +236,11 @@ export function matchSegment(segment: LatLng[], stream: Stream): MatchedEffort[]
     });
     for (const e of ends) {
       if (!followsLine(stream, s.index, e.index, cps, CHECKPOINT_SPACING, proj)) continue;
+      // The rider may have passed the top more than once (rode by, looped back, then
+      // dropped in). Time from the LAST pass before this finish that still follows the
+      // whole trail, not the first one.
+      const later = starts.filter((x) => x.index > s.index && x.index < e.index).reverse();
+      s = later.find((x) => followsLine(stream, x.index, e.index, cps, CHECKPOINT_SPACING, proj)) ?? s;
       const tStart = lineCrossingTime(stream, s, start, startDir, "last", proj) ?? crossingTime(stream, s.index, start, proj);
       const tEnd = lineCrossingTime(stream, e, end, endDir, "first", proj) ?? crossingTime(stream, e.index, end, proj);
       const elapsed = Math.round((tEnd - tStart) * 10) / 10;

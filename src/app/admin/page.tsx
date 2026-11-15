@@ -6,12 +6,12 @@ import SubmitButton from "@/components/SubmitButton";
 import { BottomNav, KindTag } from "@/components/ui";
 import { isAdmin, requireRider } from "@/lib/auth";
 import { all } from "@/lib/db";
-import { feet, miles } from "@/lib/format";
+import { feet, formatTime, miles } from "@/lib/format";
 import { STARTER_SEGMENTS } from "@/lib/starter-segments";
 import type { Segment } from "@/lib/segments";
 import { getWebhook } from "@/lib/strava";
 import {
-  connectWebhook, createInvite, deleteInvite, deleteSegment, importFromLink, importStarterSegments, moveSegment, syncNow, updateSegment,
+  checkAnyRide, connectWebhook, createInvite, deleteInvite, deleteSegment, importFromLink, importStarterSegments, moveSegment, syncNow, updateSegment,
 } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +22,20 @@ const ERRORS: Record<string, string> = {
   webhook: "Couldn’t connect to Strava. Check STRAVA_CLIENT_ID, STRAVA_CLIENT_SECRET, STRAVA_WEBHOOK_VERIFY_TOKEN and APP_URL in Vercel, then redeploy.",
 };
 
-export default async function Admin({ searchParams }: { searchParams: Promise<{ error?: string; added?: string; webhook?: string; synced?: string; stopped?: string }> }) {
+const CHECK_ERRORS: Record<string, string> = {
+  "bad-link": "That doesn’t look like a Strava ride link.",
+  "not-member": "Couldn’t match that ride to a Trail Club member. Is the rider signed up, and is the ride visible to Followers or Everyone?",
+  "not-found": "Strava says that ride doesn’t exist or is set to “Only you”.",
+  private: "That ride is set to “Only you” on Strava, so it can’t count.",
+  "not-a-ride": "That activity isn’t a bike ride.",
+  "too-old": "That ride is from before Nov 1, 2025.",
+  "outside-marin": "That ride isn’t in Marin.",
+  "not-yours": "That ride doesn’t belong to the rider it was checked for.",
+  busy: "Strava’s rate limit is maxed out. Try again in 15 minutes.",
+  error: "Something went wrong talking to Strava. Try again in a minute.",
+};
+
+export default async function Admin({ searchParams }: { searchParams: Promise<{ error?: string; added?: string; webhook?: string; synced?: string; stopped?: string; check?: string; ride?: string }> }) {
   const me = await requireRider();
   if (!isAdmin(me.id)) redirect("/");
   const sp = await searchParams;
@@ -40,6 +53,14 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
   ]);
   const webhook = await getWebhook().catch(() => undefined);
   const webhookOk = webhook?.callback_url === `${process.env.APP_URL}/api/strava/webhook`;
+  const checked = sp.check === "ok" && sp.ride
+    ? await all<{ name: string; elapsed_s: number; start_local: string; first_name: string; last_name: string }>(
+        `SELECT s.name, e.elapsed_s, e.start_local, r.first_name, r.last_name FROM efforts e
+         JOIN segments s ON s.id = e.segment_id JOIN riders r ON r.id = e.rider_id
+         WHERE e.activity_id = ? ORDER BY e.start_local`,
+        [Number(sp.ride)],
+      )
+    : null;
   const imported = new Set(segments.map((s) => s.strava_segment_id));
   const missingStarters = STARTER_SEGMENTS.filter((s) => !imported.has(s.stravaId));
   const appUrl = process.env.APP_URL ?? "";
@@ -156,6 +177,36 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
           </li>
         ))}
       </ul>
+
+      <section id="check" style={{ padding: "20px 20px 8px" }}>
+        <h2 className="section-title">Check a member’s ride</h2>
+        <p className="small muted" style={{ lineHeight: 1.5, margin: "6px 0 10px" }}>
+          Someone says a time is wrong or a ride is missing? Paste their Strava ride link to re-import it and see what Trail Club found.
+        </p>
+        {checked && (
+          <div className="notice" style={{ margin: "0 0 10px" }}>
+            {checked.length === 0 ? (
+              "✓ Ride re-imported. It doesn’t include any of our segments (according to Strava)."
+            ) : (
+              <>
+                ✓ Re-imported {checked[0].first_name}’s ride:
+                <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+                  {checked.map((c, i) => (
+                    <li key={i}>{c.name}: <b>{formatTime(c.elapsed_s)}</b></li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
+        )}
+        {sp.check && sp.check !== "ok" && (
+          <p className="notice warn" style={{ margin: "0 0 10px" }}>{CHECK_ERRORS[sp.check] ?? CHECK_ERRORS.error}</p>
+        )}
+        <form action={checkAnyRide} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <label className="field">Strava ride link<input name="link" inputMode="url" placeholder="https://www.strava.com/activities/…" required /></label>
+          <SubmitButton pendingText="Re-importing…">Check ride</SubmitButton>
+        </form>
+      </section>
 
       <section style={{ padding: "20px 20px 8px" }}>
         <h2 className="section-title" id="sync">Riders &amp; sync</h2>

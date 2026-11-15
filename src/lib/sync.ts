@@ -3,7 +3,7 @@
 // jump the queue.
 import { all, one, run } from "./db";
 import { bboxIntersects, bboxOf, MARIN_BBOX, type BBox, type LatLng } from "./geo";
-import { matchSegment, MATCHER_VERSION } from "./matcher";
+import { matchSegment, MATCHER_VERSION, trackForWindow } from "./matcher";
 import { HISTORY_START, historyStartEpoch } from "./seasons";
 import { activeSegments, pointsOf, type Segment } from "./segments";
 import {
@@ -15,6 +15,7 @@ import {
   localTime,
   NotFoundError,
   RateLimitError,
+  getSegment,
   RIDE_TYPES,
   type StravaActivity,
 } from "./strava";
@@ -30,9 +31,14 @@ export async function enqueue(kind: JobKind, riderId: number, ref: number, delay
   );
 }
 
+/**
+ * Whether a ride might be in Marin. Strava leaves out the start point when a ride
+ * begins inside the rider's privacy zone (e.g. riding from home), so a missing start
+ * counts as "maybe"; the GPS track decides later.
+ */
 function startsInMarin(a: Pick<StravaActivity, "start_latlng">) {
   const p = a.start_latlng;
-  if (!p || p.length !== 2) return false;
+  if (!p || p.length !== 2) return true;
   return bboxIntersects(bboxOf([p as LatLng]), MARIN_BBOX);
 }
 
@@ -49,12 +55,21 @@ export async function deleteActivity(activityId: number) {
  * Matches one ride against the segments. Exported separately from the Strava
  * fetch so the demo seed and tests can feed in tracks directly.
  */
+export type SavedEffort = { segment: string; elapsed: number; source: "strava" | "trail-club" };
+
+/**
+ * Saves a ride and its segment times. For segments imported from Strava, Strava's own
+ * timing is used when Strava provides it, so times match what riders see on Strava
+ * (and privacy zones, which hide GPS near home, don't matter). Our own matcher times
+ * segments Strava won't time (flagged hazardous), and anything without Strava data.
+ */
 export async function saveRide(
   riderId: number,
-  a: Pick<StravaActivity, "id" | "name" | "sport_type" | "start_date_local" | "distance" | "moving_time" | "total_elevation_gain">,
+  a: Pick<StravaActivity, "id" | "name" | "sport_type" | "start_date_local" | "distance" | "moving_time" | "total_elevation_gain"> &
+    Partial<Pick<StravaActivity, "segment_efforts" | "start_date">>,
   stream: { latlng: LatLng[]; time: number[] },
   segments?: Segment[],
-) {
+): Promise<SavedEffort[]> {
   const segs = segments ?? (await activeSegments());
   const box: BBox | null = stream.latlng.length ? bboxOf(stream.latlng, 50) : null;
   const start = localTime(a.start_date_local);
@@ -75,27 +90,43 @@ export async function saveRide(
     ],
   );
 
-  let found = 0;
+  const saved: SavedEffort[] = [];
+  const insert = (seg: Segment, startLocal: string, elapsed: number, track: [number, number][]) =>
+    run(
+      `INSERT OR REPLACE INTO efforts (segment_id, activity_id, rider_id, start_local, elapsed_s, track)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [seg.id, a.id, riderId, startLocal, elapsed, JSON.stringify(track)],
+    );
+
   for (const seg of segs) {
-    if (!box || !bboxIntersects(box, { minLat: seg.min_lat, minLng: seg.min_lng, maxLat: seg.max_lat, maxLng: seg.max_lng })) {
+    const useStrava = !!(a.segment_efforts && seg.strava_segment_id && !seg.hazardous);
+    const near = box && bboxIntersects(box, { minLat: seg.min_lat, minLng: seg.min_lng, maxLat: seg.max_lat, maxLng: seg.max_lng });
+    if (!useStrava && !near) continue;
+    await run("DELETE FROM efforts WHERE segment_id = ? AND activity_id = ?", [seg.id, a.id]);
+
+    if (useStrava) {
+      for (const se of a.segment_efforts!.filter((x) => x.segment.id === seg.strava_segment_id)) {
+        const tStart = a.start_date
+          ? (Date.parse(se.start_date) - Date.parse(a.start_date)) / 1000
+          : (Date.parse(`${localTime(se.start_date_local)}Z`) - startMs) / 1000;
+        const track = trackForWindow(pointsOf(seg), stream, tStart, se.elapsed_time);
+        await insert(seg, localTime(se.start_date_local), se.elapsed_time, track);
+        saved.push({ segment: seg.name, elapsed: se.elapsed_time, source: "strava" });
+      }
       continue;
     }
-    await run("DELETE FROM efforts WHERE segment_id = ? AND activity_id = ?", [seg.id, a.id]);
+
     for (const e of matchSegment(pointsOf(seg), stream)) {
       const effortStart = new Date(startMs + e.startOffset * 1000).toISOString().slice(0, 19);
-      await run(
-        `INSERT OR REPLACE INTO efforts (segment_id, activity_id, rider_id, start_local, elapsed_s, track)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [seg.id, a.id, riderId, effortStart, e.elapsed, JSON.stringify(e.track)],
-      );
-      found++;
+      await insert(seg, effortStart, e.elapsed, e.track);
+      saved.push({ segment: seg.name, elapsed: e.elapsed, source: "trail-club" });
     }
   }
-  return found;
+  return saved;
 }
 
 export type RideResult =
-  | { status: "saved"; found: number; date: string }
+  | { status: "saved"; found: number; date: string; efforts: SavedEffort[] }
   | { status: "skipped"; reason: "not-found" | "not-yours" | "private" | "not-a-ride" | "too-old" | "outside-marin" };
 
 /** Downloads one ride from Strava and (re)times it on every segment. */
@@ -125,9 +156,19 @@ export async function processActivity(riderId: number, activityId: number, segme
     await deleteActivity(activityId);
     return { status: "skipped", reason };
   }
-  const stream = await getStreams(riderId, activityId);
-  const found = await saveRide(riderId, a, stream, segments);
-  return { status: "saved", found, date: localTime(a.start_date_local) };
+  const segs = segments ?? (await activeSegments());
+  // The GPS track is only needed for ghost-race tracks of Strava-timed efforts and for
+  // segments we time ourselves. Skipping it halves the API cost of rides elsewhere.
+  const ours = new Set(segs.map((x) => x.strava_segment_id));
+  const needsStream =
+    !a.segment_efforts || a.segment_efforts.some((e) => ours.has(e.segment.id)) || segs.some((x) => x.hazardous || !x.strava_segment_id);
+  const stream = needsStream ? await getStreams(riderId, activityId) : { latlng: [], time: [] };
+  if (stream.latlng.length && !bboxIntersects(bboxOf(stream.latlng), MARIN_BBOX)) {
+    await deleteActivity(activityId);
+    return { status: "skipped", reason: "outside-marin" };
+  }
+  const efforts = await saveRide(riderId, a, stream, segs);
+  return { status: "saved", found: efforts.length, date: localTime(a.start_date_local), efforts };
 }
 
 async function processBackfill(riderId: number, page: number) {
@@ -182,14 +223,32 @@ export async function applyHistoryStart() {
 export async function applyMatcherVersion() {
   const current = await one<{ value: string }>("SELECT value FROM settings WHERE key = 'matcher_version'");
   if (current?.value === String(MATCHER_VERSION)) return;
-  // No stored version = times from before versioning (v1). A new database has no
-  // efforts yet, so this queues nothing there.
-  const rides = await all<{ activity_id: number; rider_id: number }>("SELECT DISTINCT activity_id, rider_id FROM efforts");
-  for (const r of rides) await enqueue("activity", r.rider_id, r.activity_id);
+  await refreshSegmentFlags();
+  // Re-time every imported ride (not just ones with times: some were missed), and
+  // re-list every rider's history to pick up rides skipped before.
+  const rides = await all<{ id: number; rider_id: number }>("SELECT id, rider_id FROM activities");
+  for (const r of rides) await enqueue("activity", r.rider_id, r.id);
+  for (const r of await all<{ id: number }>("SELECT id FROM riders WHERE refresh_token IS NOT NULL")) {
+    await enqueue("backfill", r.id, 1);
+  }
   await run(
     "INSERT INTO settings (key, value) VALUES ('matcher_version', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
     [String(MATCHER_VERSION)],
   );
+}
+
+/** Updates which segments Strava flags as hazardous (and so won't time). */
+async function refreshSegmentFlags() {
+  const segs = await all<{ id: number; strava_segment_id: number }>("SELECT id, strava_segment_id FROM segments WHERE strava_segment_id IS NOT NULL");
+  if (!segs.length) return;
+  const admins = (process.env.ADMIN_STRAVA_IDS ?? "").split(",").map((x) => Number(x.trim())).filter(Boolean);
+  const riders = await all<{ id: number }>("SELECT id FROM riders WHERE refresh_token IS NOT NULL");
+  const asRider = riders.map((r) => r.id).sort((x, y) => Number(admins.includes(y)) - Number(admins.includes(x)))[0];
+  if (!asRider) return;
+  for (const seg of segs) {
+    const s = await getSegment(asRider, seg.strava_segment_id); // throws on rate limit: retried next run
+    await run("UPDATE segments SET hazardous = ? WHERE id = ?", [s.hazardous ? 1 : 0, seg.id]);
+  }
 }
 
 /**
@@ -218,7 +277,13 @@ export async function nextJob(perRider: Map<number, number>): Promise<Job | unde
 export async function runJobs({ deadlineMs = Date.now() + 50_000, max = 50 } = {}) {
   const done = { processed: 0, failed: 0, stoppedFor: "empty" as "empty" | "rate-limit" | "time" | "max" };
   await applyHistoryStart();
-  await applyMatcherVersion();
+  try {
+    await applyMatcherVersion();
+  } catch (err) {
+    // Couldn't reach Strava for the one-time refresh; it's retried on the next run.
+    if (err instanceof RateLimitError) return { ...done, stoppedFor: "rate-limit" as const };
+    console.error("Timing-rules update failed, will retry", err);
+  }
   const segments = await activeSegments();
   const perRider = new Map<number, number>();
   while (true) {

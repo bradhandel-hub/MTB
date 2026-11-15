@@ -6,8 +6,9 @@ import { isAdmin, randomCode, requireRider } from "@/lib/auth";
 import { all, run } from "@/lib/db";
 import { fromStrava, getSegmentById, insertSegment, parseStravaSegmentId, type SegmentKind } from "@/lib/segments";
 import { STARTER_SEGMENTS } from "@/lib/starter-segments";
-import { createWebhook, deleteWebhook, getSegment, getWebhook } from "@/lib/strava";
-import { queueRecheckForSegment, runJobs } from "@/lib/sync";
+import { createWebhook, deleteWebhook, getActivity, getSegment, getWebhook, RateLimitError } from "@/lib/strava";
+import { activityIdFrom } from "@/lib/strava-links";
+import { processActivity, queueRecheckForSegment, runJobs } from "@/lib/sync";
 
 async function requireAdmin() {
   const me = await requireRider();
@@ -110,4 +111,33 @@ export async function connectWebhook() {
     redirect("/admin?error=webhook");
   }
   redirect("/admin?webhook=1");
+}
+
+/**
+ * Re-imports any member's ride from its Strava link and shows what was found, to
+ * diagnose "my time is wrong / my ride is missing" reports.
+ */
+export async function checkAnyRide(form: FormData) {
+  const me = await requireAdmin();
+  const id = await activityIdFrom(String(form.get("link") ?? ""));
+  if (!id) redirect("/admin?check=bad-link#check");
+  let outcome: string;
+  try {
+    // Fetch as the admin first, only to learn whose ride it is.
+    let owner: number | undefined = (await all<{ rider_id: number }>("SELECT rider_id FROM activities WHERE id = ?", [id]))[0]?.rider_id;
+    if (!owner) {
+      const a = await getActivity(me.id, id).catch(() => null);
+      owner = a?.athlete?.id;
+    }
+    const member = owner ? (await all("SELECT 1 FROM riders WHERE id = ?", [owner])).length > 0 : false;
+    if (!owner || !member) {
+      outcome = "not-member";
+    } else {
+      const r = await processActivity(owner, id);
+      outcome = r.status === "saved" ? `ok&ride=${id}` : r.reason;
+    }
+  } catch (err) {
+    outcome = err instanceof RateLimitError ? "busy" : "error";
+  }
+  redirect(`/admin?check=${outcome}#check`);
 }

@@ -111,6 +111,9 @@ export type StravaActivity = {
   name: string;
   sport_type: string;
   start_date_local: string; // "2026-11-08T15:13:42Z" (local time, despite the Z)
+  start_date?: string; // real UTC time
+  /** Strava's own timing of this ride on every segment it matched. */
+  segment_efforts?: StravaEffort[];
   distance: number;
   moving_time: number;
   total_elevation_gain: number;
@@ -119,7 +122,16 @@ export type StravaActivity = {
   athlete?: { id: number };
 };
 
-export const getActivity = (riderId: number, id: number) => api<StravaActivity>(riderId, `/activities/${id}`);
+export type StravaEffort = {
+  segment: { id: number };
+  elapsed_time: number;
+  start_date: string; // UTC
+  start_date_local: string;
+};
+
+/** One ride, including Strava's timings on every segment it matched (hidden ones too). */
+export const getActivity = (riderId: number, id: number) =>
+  api<StravaActivity>(riderId, `/activities/${id}?include_all_efforts=true`);
 
 /** A page of the rider's rides, newest first, optionally only those after a Unix timestamp. */
 export const listActivities = (riderId: number, page: number, after?: number, perPage = 100) =>
@@ -141,6 +153,8 @@ export type StravaSegment = {
   name: string;
   distance: number;
   average_grade: number;
+  /** Strava doesn't time segments it flags as hazardous, so we time those ourselves. */
+  hazardous?: boolean;
   elevation_high: number;
   elevation_low: number;
   total_elevation_gain: number;

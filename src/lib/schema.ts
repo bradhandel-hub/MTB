@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS segments (
   min_lat REAL NOT NULL, min_lng REAL NOT NULL, max_lat REAL NOT NULL, max_lng REAL NOT NULL,
   sort_order INTEGER NOT NULL DEFAULT 0,
   active INTEGER NOT NULL DEFAULT 1,
+  hazardous INTEGER NOT NULL DEFAULT 0,   -- Strava won't time it, so we do
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
