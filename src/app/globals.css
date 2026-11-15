@@ -107,3 +107,14 @@ h1, h2, h3 { margin: 0; }
 .maplibregl-ctrl-attrib { background: rgba(14, 19, 17, 0.7) !important; color: var(--muted) !important; font-size: 10px; }
 .maplibregl-ctrl-attrib a { color: var(--muted) !important; }
 .maplibregl-ctrl-attrib-button { filter: invert(1); }
+
+/* "How timing works" note under leaderboards */
+.timing-note { margin: 4px 20px 6px; font-size: 13px; line-height: 1.5; color: var(--muted); }
+.timing-note summary { cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 6px; min-height: 32px; color: var(--muted); font-weight: 500; }
+.timing-note summary::-webkit-details-marker { display: none; }
+.timing-note summary::before { content: "ⓘ"; font-size: 14px; }
+.timing-note[open] { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 4px 14px 10px; }
+.timing-note[open] summary { color: var(--fog); }
+.timing-note ul { margin: 6px 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+.timing-note b { color: var(--fog); font-weight: 600; }
+.timing-note p { margin: 6px 0; }

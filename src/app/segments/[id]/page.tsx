@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import Leaderboard from "@/components/Leaderboard";
+import TimingNote from "@/components/TimingNote";
 import TrailMap from "@/components/TrailMap";
 import { BackIcon } from "@/components/Icons";
 import { BikeToggle, BottomNav, KindTag, RangeTabs, parseBike, withParams } from "@/components/ui";
@@ -51,6 +52,7 @@ export default async function SegmentPage({ params, searchParams }: { params: Pr
         <BikeToggle bike={bike} href={(b) => withParams(path, current, { bike: b === "all" ? undefined : b })} />
         <span className="small muted">Tap riders to race</span>
       </div>
+      <TimingNote />
       <Leaderboard
         key={`${range.key}-${bike}`}
         rows={shown.map((r) => ({

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ChevronIcon } from "@/components/Icons";
+import TimingNote from "@/components/TimingNote";
 import { BikeToggle, BottomNav, KindTag, RangeTabs, parseBike, withParams } from "@/components/ui";
 import { ordinal } from "@/components/FeedList";
 import { requireRider } from "@/lib/auth";
@@ -37,6 +38,7 @@ export default async function Segments({ searchParams }: { searchParams: Search 
         ))}
       </div>
 
+      <div style={{ marginTop: 6 }}><TimingNote /></div>
       {list.length === 0 ? (
         <p className="empty">No segments yet. An admin can add them from the admin page.</p>
       ) : (
