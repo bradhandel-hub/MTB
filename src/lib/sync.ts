@@ -1,6 +1,7 @@
 // Turns Strava rides into segment efforts. Every Strava call goes through the job
 // queue so the backfill of old rides never blows the API rate limit; new rides
 // jump the queue.
+import polyline from "@mapbox/polyline";
 import { all, one, run } from "./db";
 import { bboxIntersects, bboxOf, MARIN_BBOX, type BBox, type LatLng } from "./geo";
 import { gpsCheck, matchSegment, MATCHER_VERSION, trackForWindow } from "./matcher";
@@ -66,12 +67,15 @@ export type SavedEffort = { segment: string; elapsed: number; source: "strava" |
 export async function saveRide(
   riderId: number,
   a: Pick<StravaActivity, "id" | "name" | "sport_type" | "start_date_local" | "distance" | "moving_time" | "total_elevation_gain"> &
-    Partial<Pick<StravaActivity, "segment_efforts" | "start_date">>,
+    Partial<Pick<StravaActivity, "segment_efforts" | "start_date" | "map">>,
   stream: { latlng: LatLng[]; time: number[] },
   segments?: Segment[],
 ): Promise<SavedEffort[]> {
   const segs = segments ?? (await activeSegments());
-  const box: BBox | null = stream.latlng.length ? bboxOf(stream.latlng, 50) : null;
+  // Where the ride went: from the GPS track, or Strava's summary map when we skipped
+  // the GPS download. Used to find rides to recheck when a segment is added.
+  const summary = a.map?.summary_polyline ? (polyline.decode(a.map.summary_polyline) as LatLng[]) : [];
+  const box: BBox | null = stream.latlng.length ? bboxOf(stream.latlng, 50) : summary.length ? bboxOf(summary, 100) : null;
   const start = localTime(a.start_date_local);
   const startMs = Date.parse(`${start}Z`);
 
@@ -194,11 +198,14 @@ async function processBackfill(riderId: number, page: number) {
   else await run("UPDATE riders SET backfill_done = 1 WHERE id = ?", [riderId]);
 }
 
-/** When a segment is added, recheck stored rides that pass near it. */
+/**
+ * When a segment is added, recheck stored rides that pass near it, plus any ride
+ * whose route area we don't know (saved before we kept it), so none are missed.
+ */
 export async function queueRecheckForSegment(seg: Segment) {
   const rides = await all<{ id: number; rider_id: number }>(
     `SELECT id, rider_id FROM activities
-     WHERE max_lat >= ? AND min_lat <= ? AND max_lng >= ? AND min_lng <= ?`,
+     WHERE min_lat IS NULL OR (max_lat >= ? AND min_lat <= ? AND max_lng >= ? AND min_lng <= ?)`,
     [seg.min_lat, seg.max_lat, seg.min_lng, seg.max_lng],
   );
   for (const r of rides) await enqueue("activity", r.rider_id, r.id, 30);

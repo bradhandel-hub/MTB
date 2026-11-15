@@ -114,6 +114,8 @@ export type StravaActivity = {
   start_date?: string; // real UTC time
   /** Strava's own timing of this ride on every segment it matched. */
   segment_efforts?: StravaEffort[];
+  /** Low-detail route line, enough to know roughly where the ride went. */
+  map?: { summary_polyline?: string | null };
   distance: number;
   moving_time: number;
   total_elevation_gain: number;

@@ -11,7 +11,7 @@
 // a 1 s watch and a sparse phone recording are timed fairly.
 
 /** Bump when timing rules change; stored times are then recalculated from Strava. */
-export const MATCHER_VERSION = 4;
+export const MATCHER_VERSION = 5;
 
 import { haversine, makeLineIndex, makeProjector, type LatLng } from "./geo";
 

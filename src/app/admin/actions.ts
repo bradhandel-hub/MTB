@@ -27,6 +27,8 @@ async function importOne(adminId: number, stravaId: number, nameOverride?: strin
 
 export async function importStarterSegments() {
   const me = await requireAdmin();
+  const existing = await all("SELECT 1 FROM segments LIMIT 1");
+  if (existing.length) return; // first-time setup only
   for (const s of STARTER_SEGMENTS) await importOne(me.id, s.stravaId, s.name);
   revalidatePath("/admin");
 }
@@ -50,19 +52,6 @@ export async function updateSegment(form: FormData) {
     await run("UPDATE segments SET kind = ?, kind_overridden = 1 WHERE id = ? AND kind != ?", [kind, id, kind]);
   }
   await run("UPDATE segments SET active = ? WHERE id = ?", [form.get("active") ? 1 : 0, id]);
-  revalidatePath("/admin");
-}
-
-export async function moveSegment(form: FormData) {
-  await requireAdmin();
-  const id = Number(form.get("id"));
-  const dir = form.get("dir") === "up" ? -1 : 1;
-  const segs = await all<{ id: number }>("SELECT id FROM segments ORDER BY sort_order, id");
-  const i = segs.findIndex((s) => s.id === id);
-  const j = i + dir;
-  if (i < 0 || j < 0 || j >= segs.length) return;
-  [segs[i], segs[j]] = [segs[j], segs[i]];
-  for (let k = 0; k < segs.length; k++) await run("UPDATE segments SET sort_order = ? WHERE id = ?", [k + 1, segs[k].id]);
   revalidatePath("/admin");
 }
 

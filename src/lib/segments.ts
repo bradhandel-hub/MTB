@@ -83,7 +83,7 @@ export async function insertSegment(input: {
 }
 
 export const activeSegments = () =>
-  all<Segment>("SELECT * FROM segments WHERE active = 1 ORDER BY sort_order, id");
+  all<Segment>("SELECT * FROM segments WHERE active = 1 ORDER BY name COLLATE NOCASE, id");
 
 export const getSegmentById = (id: number) => one<Segment>("SELECT * FROM segments WHERE id = ?", [id]);
 

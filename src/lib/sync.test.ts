@@ -157,3 +157,24 @@ describe("GPS review decisions", () => {
     expect(await leaderboard(1, ALL_TIME, "all")).toHaveLength(0);
   });
 });
+
+describe("adding a segment", () => {
+  beforeEach(() => useDatabase(":memory:"));
+
+  it("rechecks rides near it and rides whose route area isn't known", async () => {
+    const { queueRecheckForSegment } = await import("./sync");
+    const { all } = await import("./db");
+    await run("INSERT INTO riders (id, first_name, refresh_token) VALUES (1, 'A', 't')");
+    const add = (id: number, box: [number, number, number, number] | null) =>
+      run(
+        "INSERT INTO activities (id, rider_id, sport_type, is_ebike, start_local, min_lat, min_lng, max_lat, max_lng) VALUES (?, 1, 'MountainBikeRide', 0, '2026-10-01', ?, ?, ?, ?)",
+        [id, ...(box ?? [null, null, null, null])],
+      );
+    await add(1, [37.97, -122.62, 38.0, -122.58]); // passes the new segment
+    await add(2, [37.85, -122.55, 37.88, -122.5]); // Mill Valley, nowhere near
+    await add(3, null); // saved without a route area
+    const seg = { min_lat: 37.98, min_lng: -122.61, max_lat: 37.99, max_lng: -122.6 } as never;
+    expect(await queueRecheckForSegment(seg)).toBe(2);
+    expect((await all<{ ref: number }>("SELECT ref FROM jobs ORDER BY ref")).map((j) => j.ref)).toEqual([1, 3]);
+  });
+});

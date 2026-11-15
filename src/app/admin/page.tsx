@@ -12,7 +12,7 @@ import type { Segment } from "@/lib/segments";
 import { getWebhook } from "@/lib/strava";
 import { flaggedEfforts, riderName } from "@/lib/queries";
 import {
-  checkAnyRide, connectWebhook, createInvite, reviewEffort, deleteInvite, deleteSegment, importFromLink, importStarterSegments, moveSegment, syncNow, updateSegment,
+  checkAnyRide, connectWebhook, createInvite, reviewEffort, deleteInvite, deleteSegment, importFromLink, importStarterSegments, syncNow, updateSegment,
 } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -41,7 +41,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
   if (!isAdmin(me.id)) redirect("/");
   const sp = await searchParams;
   const [segments, invites, riders, jobs] = await Promise.all([
-    all<Segment>("SELECT * FROM segments ORDER BY sort_order, id"),
+    all<Segment>("SELECT * FROM segments ORDER BY name COLLATE NOCASE, id"),
     all<{ code: string; note: string | null; uses: number; max_uses: number }>("SELECT code, note, uses, max_uses FROM invites ORDER BY created_at DESC"),
     all<{ id: number; first_name: string; last_name: string; backfill_done: number; rides: number; efforts: number; waiting: number }>(
       `SELECT r.id, r.first_name, r.last_name, r.backfill_done,
@@ -65,7 +65,8 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
   const flagged = await flaggedEfforts();
   const waitingReview = flagged.filter((f) => !f.review);
   const imported = new Set(segments.map((s) => s.strava_segment_id));
-  const missingStarters = STARTER_SEGMENTS.filter((s) => !imported.has(s.stravaId));
+  // Only offered on first setup, so a segment you replaced (like Solstice) never comes back.
+  const missingStarters = segments.length === 0 ? STARTER_SEGMENTS.filter((s) => !imported.has(s.stravaId)) : [];
   const appUrl = process.env.APP_URL ?? "";
 
   return (
@@ -164,10 +165,6 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
           <li key={s.id} style={{ flexDirection: "column", alignItems: "stretch", gap: 8 }}>
             <div className="row-between">
               <span className="name">{i + 1}. {s.name} <KindTag kind={s.kind} />{!s.active && <span className="tag">hidden</span>}</span>
-              <span style={{ display: "flex", gap: 4 }}>
-                <form action={moveSegment}><input type="hidden" name="id" value={s.id} /><input type="hidden" name="dir" value="up" /><button className="icon-btn" aria-label={`Move ${s.name} up`}>↑</button></form>
-                <form action={moveSegment}><input type="hidden" name="id" value={s.id} /><input type="hidden" name="dir" value="down" /><button className="icon-btn" aria-label={`Move ${s.name} down`}>↓</button></form>
-              </span>
             </div>
             <span className="small muted">
               {miles(s.distance_m)} · +{feet(s.elev_gain_m)} / −{feet(s.elev_loss_m)}
