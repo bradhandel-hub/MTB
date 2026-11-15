@@ -61,3 +61,22 @@ describe("history start date", () => {
     expect((await all("SELECT * FROM jobs")).length).toBe(3);
   });
 });
+
+describe("timing rule changes", () => {
+  beforeEach(() => useDatabase(":memory:"));
+
+  it("re-checks rides with segment times once, then never again", async () => {
+    const { applyMatcherVersion } = await import("./sync");
+    const { all } = await import("./db");
+    await run("INSERT INTO riders (id, first_name, refresh_token) VALUES (1, 'A', 't')");
+    await run("INSERT INTO segments (id, name, kind, polyline, distance_m, min_lat, min_lng, max_lat, max_lng) VALUES (1, 'S', 'descent', '[]', 1, 0, 0, 0, 0)");
+    await run("INSERT INTO activities (id, rider_id, sport_type, is_ebike, start_local) VALUES (7, 1, 'MountainBikeRide', 0, '2026-11-14T09:00:00')");
+    await run("INSERT INTO efforts (segment_id, activity_id, rider_id, start_local, elapsed_s, track) VALUES (1, 7, 1, '2026-11-14T09:10:00', 120, '[]')");
+
+    await applyMatcherVersion();
+    expect(await all("SELECT kind, ref FROM jobs")).toEqual([{ kind: "activity", ref: 7 }]);
+    await run("DELETE FROM jobs");
+    await applyMatcherVersion();
+    expect(await all("SELECT * FROM jobs")).toEqual([]);
+  });
+});

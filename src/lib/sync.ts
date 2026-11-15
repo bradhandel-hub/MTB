@@ -3,7 +3,7 @@
 // jump the queue.
 import { all, one, run } from "./db";
 import { bboxIntersects, bboxOf, MARIN_BBOX, type BBox, type LatLng } from "./geo";
-import { matchSegment } from "./matcher";
+import { matchSegment, MATCHER_VERSION } from "./matcher";
 import { HISTORY_START, historyStartEpoch } from "./seasons";
 import { activeSegments, pointsOf, type Segment } from "./segments";
 import {
@@ -152,6 +152,24 @@ export async function applyHistoryStart() {
 }
 
 /**
+ * When the timing rules change (MATCHER_VERSION), re-download and re-time every ride
+ * that has segment times. GPS tracks aren't kept, so this is the only way to update
+ * old times. Runs once per version.
+ */
+export async function applyMatcherVersion() {
+  const current = await one<{ value: string }>("SELECT value FROM settings WHERE key = 'matcher_version'");
+  if (current?.value === String(MATCHER_VERSION)) return;
+  // No stored version = times from before versioning (v1). A new database has no
+  // efforts yet, so this queues nothing there.
+  const rides = await all<{ activity_id: number; rider_id: number }>("SELECT DISTINCT activity_id, rider_id FROM efforts");
+  for (const r of rides) await enqueue("activity", r.rider_id, r.activity_id);
+  await run(
+    "INSERT INTO settings (key, value) VALUES ('matcher_version', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+    [String(MATCHER_VERSION)],
+  );
+}
+
+/**
  * Picks the next job fairly: riders take turns (whoever has had the fewest jobs this
  * run goes next), so one rider's long history never blocks a new member. Within a
  * rider, listing their history comes first (one cheap call that finds their rides),
@@ -177,6 +195,7 @@ export async function nextJob(perRider: Map<number, number>): Promise<Job | unde
 export async function runJobs({ deadlineMs = Date.now() + 50_000, max = 50 } = {}) {
   const done = { processed: 0, failed: 0, stoppedFor: "empty" as "empty" | "rate-limit" | "time" | "max" };
   await applyHistoryStart();
+  await applyMatcherVersion();
   const segments = await activeSegments();
   const perRider = new Map<number, number>();
   while (true) {

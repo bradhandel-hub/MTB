@@ -123,3 +123,62 @@ describe("matchSegment", () => {
     expect(matchSegment(trail, stream)).toHaveLength(0);
   });
 });
+
+describe("timing like a race gate", () => {
+  /** Joins recordings end to end, continuing the clock. */
+  function join(...parts: Stream[]): Stream {
+    const out: Stream = { latlng: [], time: [] };
+    for (const p of parts) {
+      const offset = out.time.length ? out.time[out.time.length - 1] + 1 : 0;
+      out.latlng.push(...p.latlng);
+      out.time.push(...p.time.map((t) => t + offset));
+    }
+    return out;
+  }
+  /** Standing still near a spot for `seconds`, with GPS wander. */
+  function wait(at: LatLng, seconds: number, seed = 5): Stream {
+    const rand = rng(seed);
+    const s: Stream = { latlng: [], time: [] };
+    for (let t = 0; t < seconds; t++) {
+      s.latlng.push([at[0] + ((rand() - 0.5) * 6) / 111_320, at[1] + ((rand() - 0.5) * 6) / 88_000]);
+      s.time.push(t);
+    }
+    return s;
+  }
+
+  const onTrail = trailLength / 5; // true time at 5 m/s
+
+  it("doesn't count waiting for friends just before the start", () => {
+    // Regrouping right at the trailhead, a step behind the start marker.
+    const top = m(-1.5, 0.5);
+    const stream = join(
+      ride([...approach.slice(0, 2), top], { speed: 5, seed: 2 }).stream,
+      wait(top, 25),
+      ride([top, ...trail, ...exit], { speed: 5, noise: 3, seed: 4 }).stream,
+    );
+    const [e] = matchSegment(trail, stream);
+    expect(Math.abs(e.elapsed - onTrail)).toBeLessThan(1.5);
+  });
+
+  it("doesn't count stopping just past the finish", () => {
+    const end = trail[trail.length - 1];
+    // Rolls 8 m on past the finish, then pulls over to wait.
+    const past = m(150 + 7.7, -200 - 2);
+    const stream = join(
+      ride([...approach, ...trail.slice(1), past], { speed: 5, noise: 3, seed: 6 }).stream,
+      wait(past, 30, 9),
+      ride([past, ...exit], { speed: 5, seed: 8 }).stream,
+    );
+    const [e] = matchSegment(trail, stream);
+    expect(end).toBeDefined();
+    expect(Math.abs(e.elapsed - onTrail)).toBeLessThan(1.5);
+  });
+
+  it("times sparse 5-second recording within about a second", () => {
+    const errors = [11, 12, 13, 14, 15].map((seed) => {
+      const { stream } = ride([...approach, ...trail.slice(1), ...exit], { speed: 6, sampleEvery: 5, noise: 4, seed });
+      return Math.abs(matchSegment(trail, stream)[0].elapsed - trailLength / 6);
+    });
+    expect(Math.max(...errors)).toBeLessThan(1.5);
+  });
+});

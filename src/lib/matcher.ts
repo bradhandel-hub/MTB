@@ -5,8 +5,13 @@
 //   2. then stays on the line: checkpoints every CHECKPOINT_SPACING meters along the
 //      segment must each be passed in order, within CORRIDOR meters,
 //   3. then passes the finish.
-// Times are interpolated between GPS samples so a 1 s watch and a sparse phone
-// recording are timed fairly.
+// The clock runs from the last time the rider crosses the start line to the first
+// time they cross the finish line, like timing beams at a race. Waiting for friends
+// at the top isn't counted. Crossing times are interpolated between GPS samples so
+// a 1 s watch and a sparse phone recording are timed fairly.
+
+/** Bump when timing rules change; stored times are then recalculated from Strava. */
+export const MATCHER_VERSION = 2;
 
 import { haversine, makeLineIndex, makeProjector, type LatLng } from "./geo";
 
@@ -35,7 +40,8 @@ export type MatchedEffort = {
   track: [number, number][];
 };
 
-type Gate = { index: number; dist: number };
+/** A visit to a gate: the closest sample, plus the first and last samples inside it. */
+type Gate = { index: number; dist: number; from: number; to: number };
 
 /** Groups consecutive samples within `radius` of `target` and returns each group's closest sample. */
 function gatePasses(latlng: LatLng[], target: LatLng, radius: number, from = 0): Gate[] {
@@ -44,7 +50,12 @@ function gatePasses(latlng: LatLng[], target: LatLng, radius: number, from = 0):
   for (let i = from; i < latlng.length; i++) {
     const d = haversine(latlng[i], target);
     if (d <= radius) {
-      if (!current || d < current.dist) current = { index: i, dist: d };
+      if (!current) current = { index: i, dist: d, from: i, to: i };
+      current.to = i;
+      if (d < current.dist) {
+        current.index = i;
+        current.dist = d;
+      }
     } else if (current) {
       out.push(current);
       current = null;
@@ -83,6 +94,53 @@ function crossingTime(stream: Stream, i: number, target: LatLng, proj: (q: LatLn
     }
   }
   return bestT;
+}
+
+type XY = [number, number];
+
+/**
+ * When the rider crossed the timing line: an imaginary line through `point`, square
+ * to the trail's direction `dir` there, like the beam at a race start. Looks at the
+ * GPS legs in and just around the gate visit. For the start we take the LAST forward
+ * crossing (so waiting for friends at the top, or rolling back and forth, isn't
+ * timed); for the finish the FIRST one. Returns null if no leg crosses the line.
+ */
+function lineCrossingTime(
+  stream: Stream,
+  gate: Gate,
+  point: LatLng,
+  dir: XY,
+  which: "first" | "last",
+  proj: (q: LatLng) => XY,
+): number | null {
+  const { latlng, time } = stream;
+  const [ox, oy] = proj(point);
+  const along = (k: number) => {
+    const [x, y] = proj(latlng[k]);
+    return [(x - ox) * dir[0] + (y - oy) * dir[1], (x - ox) * -dir[1] + (y - oy) * dir[0]] as const;
+  };
+  let found: number | null = null;
+  const lo = Math.max(0, gate.from - 1);
+  const hi = Math.min(latlng.length - 2, gate.to);
+  for (let k = lo; k <= hi; k++) {
+    const [s0, l0] = along(k);
+    const [s1, l1] = along(k + 1);
+    if (!(s0 < 0 && s1 >= 0)) continue;
+    const f = -s0 / (s1 - s0);
+    if (Math.abs(l0 + f * (l1 - l0)) > START_GATE) continue; // crossed the line, but off to the side
+    const t = time[k] + f * (time[k + 1] - time[k]);
+    if (which === "first") return t;
+    found = t;
+  }
+  return found;
+}
+
+/** Unit direction of travel along the line between two distances. */
+function directionAt(line: ReturnType<typeof makeLineIndex>, from: number, to: number, proj: (q: LatLng) => XY): XY {
+  const [ax, ay] = proj(line.pointAt(from));
+  const [bx, by] = proj(line.pointAt(to));
+  const len = Math.hypot(bx - ax, by - ay) || 1;
+  return [(bx - ax) / len, (by - ay) / len];
 }
 
 function checkpoints(segment: LatLng[], spacing: number): LatLng[] {
@@ -142,6 +200,9 @@ export function matchSegment(segment: LatLng[], stream: Stream): MatchedEffort[]
   const start = segment[0];
   const end = segment[segment.length - 1];
   const cps = checkpoints(segment, CHECKPOINT_SPACING);
+  const look = Math.min(20, line.length / 4);
+  const startDir = directionAt(line, 0, look, proj);
+  const endDir = directionAt(line, line.length - look, line.length, proj);
 
   // Distance travelled on the ride up to each sample, to reject wildly long detours.
   const rideCum = [0];
@@ -158,8 +219,8 @@ export function matchSegment(segment: LatLng[], stream: Stream): MatchedEffort[]
     });
     for (const e of ends) {
       if (!followsLine(stream, s.index, e.index, cps, CHECKPOINT_SPACING, proj)) continue;
-      const tStart = crossingTime(stream, s.index, start, proj);
-      const tEnd = crossingTime(stream, e.index, end, proj);
+      const tStart = lineCrossingTime(stream, s, start, startDir, "last", proj) ?? crossingTime(stream, s.index, start, proj);
+      const tEnd = lineCrossingTime(stream, e, end, endDir, "first", proj) ?? crossingTime(stream, e.index, end, proj);
       const elapsed = Math.round((tEnd - tStart) * 10) / 10;
       if (elapsed <= 0) continue;
       efforts.push({

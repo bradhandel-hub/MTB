@@ -22,9 +22,14 @@ was won or lost.
 A ride counts on a segment when it passes within **30 m** of the start, then passes
 checkpoints every **25 m** along our line, in order and within **40 m**, then passes the
 finish. Up to 10% of checkpoints can be missed (GPS dropouts under trees), but never more
-than **120 m** in a row, so cutting a switchback doesn't count. Start and finish times are
-interpolated between GPS points, so a 1-second Apple Watch and a sparse phone recording
-are timed fairly. Tests are in `src/lib/matcher.test.ts`.
+than **120 m** in a row, so cutting a switchback doesn't count.
+
+The clock works like timing beams at a race: it starts the **last** time you cross the
+start line heading down the trail and stops the **first** time you cross the finish
+line. Waiting for friends at the trailhead isn't counted. Crossing times are
+interpolated between GPS points, so a 1-second Apple Watch and a sparse phone
+recording are timed fairly. When these rules change (`MATCHER_VERSION`), stored times
+are re-checked against Strava automatically. Tests are in `src/lib/matcher.test.ts`.
 
 ### How far back
 
