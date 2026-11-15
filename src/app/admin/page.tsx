@@ -10,8 +10,9 @@ import { feet, formatTime, miles } from "@/lib/format";
 import { STARTER_SEGMENTS } from "@/lib/starter-segments";
 import type { Segment } from "@/lib/segments";
 import { getWebhook } from "@/lib/strava";
+import { flaggedEfforts, riderName } from "@/lib/queries";
 import {
-  checkAnyRide, connectWebhook, createInvite, deleteInvite, deleteSegment, importFromLink, importStarterSegments, moveSegment, syncNow, updateSegment,
+  checkAnyRide, connectWebhook, createInvite, reviewEffort, deleteInvite, deleteSegment, importFromLink, importStarterSegments, moveSegment, syncNow, updateSegment,
 } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -61,6 +62,8 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
         [Number(sp.ride)],
       )
     : null;
+  const flagged = await flaggedEfforts();
+  const waitingReview = flagged.filter((f) => !f.review);
   const imported = new Set(segments.map((s) => s.strava_segment_id));
   const missingStarters = STARTER_SEGMENTS.filter((s) => !imported.has(s.stravaId));
   const appUrl = process.env.APP_URL ?? "";
@@ -83,6 +86,43 @@ export default async function Admin({ searchParams }: { searchParams: Promise<{ 
         </p>
       )}
       {sp.added && <p className="notice">Segment added. Riders’ past rides near it are being rechecked.</p>}
+
+      <section id="gps" style={{ padding: "20px 20px 8px" }}>
+        <h2 className="section-title">GPS flags {waitingReview.length > 0 && <span style={{ color: "var(--gold)" }}>({waitingReview.length})</span>}</h2>
+        <p className="small muted" style={{ lineHeight: 1.5, margin: "6px 0 10px" }}>
+          Times where the GPS seems to jump ahead, which can make a run look faster than it was. They show a ⚠ on the
+          leaderboard until you decide. Open the ride on Strava to look at the map.
+        </p>
+        {flagged.length === 0 && <p className="small muted">Nothing flagged. 👍</p>}
+      </section>
+      {flagged.length > 0 && (
+        <ul className="list">
+          {flagged.map((f) => (
+            <li key={f.id} style={{ flexDirection: "column", alignItems: "stretch", gap: 6, opacity: f.review === "removed" ? 0.6 : 1 }}>
+              <div className="row-between">
+                <span className="name">{riderName(f)} · {f.segment_name}</span>
+                <span className="time" style={{ fontSize: 18 }}>{formatTime(f.elapsed_s)}</span>
+              </div>
+              <span className="small" style={{ color: "var(--gold)" }}>⚠ {f.gps_flag}</span>
+              <span className="small muted">
+                {f.start_local.slice(0, 10)} ·{" "}
+                <a href={`https://www.strava.com/activities/${f.activity_id}`} target="_blank" rel="noreferrer">Open ride on Strava ↗</a>
+                {f.review === "removed" && " · removed from the boards"}
+              </span>
+              <div style={{ display: "flex", gap: 8 }}>
+                {f.review === "removed" ? (
+                  <form action={reviewEffort}><input type="hidden" name="id" value={f.id} /><input type="hidden" name="review" value="" /><button className="pill" style={{ cursor: "pointer" }}>Restore</button></form>
+                ) : (
+                  <>
+                    <form action={reviewEffort}><input type="hidden" name="id" value={f.id} /><input type="hidden" name="review" value="ok" /><button className="pill" style={{ cursor: "pointer" }}>Looks fine</button></form>
+                    <form action={reviewEffort}><input type="hidden" name="id" value={f.id} /><input type="hidden" name="review" value="removed" /><button className="pill" style={{ cursor: "pointer", color: "var(--redwood-hi)" }}>Remove time</button></form>
+                  </>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
 
       <section style={{ padding: "8px 20px" }}>
         <h2 className="section-title">Strava connection</h2>

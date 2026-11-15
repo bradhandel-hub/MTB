@@ -141,3 +141,14 @@ export async function checkAnyRide(form: FormData) {
   }
   redirect(`/admin?check=${outcome}#check`);
 }
+
+/** Admin decision on a GPS-flagged time: "ok" keeps it (no warning), "removed" drops it, "" undoes. */
+export async function reviewEffort(form: FormData) {
+  await requireAdmin();
+  const decision = String(form.get("review"));
+  await run("UPDATE efforts SET review = ? WHERE id = ?", [
+    decision === "ok" || decision === "removed" ? decision : null,
+    Number(form.get("id")),
+  ]);
+  revalidatePath("/admin");
+}

@@ -25,6 +25,16 @@ hidden by a privacy zone doesn't matter. Strava doesn't time segments it flags a
 hazardous, so for those, and for any segment without Strava data, Trail Club times
 the ride itself with the rules below.
 
+### GPS glitch flags
+
+Every timed run is checked against the GPS points recorded during it (`gpsCheck` in
+`src/lib/matcher.ts`). It's flagged when the track **teleports** (over 75 m faster than
+56 mph and doesn't snap back), **skips ahead** down the trail by 120 m or more and stays
+there, or **averages over 34 mph**. Those are the glitches that make a time too fast.
+Dropouts under trees and privacy-zone gaps aren't flagged, because the clock keeps
+running through them. Flagged times show a ⚠ on leaderboards; admins review them in
+Admin → GPS flags and either keep the time or remove it. Decisions survive re-imports.
+
 ### Segment matching rules (our own timing)
 
 A ride counts on a segment when it passes within **30 m** of the start, then passes

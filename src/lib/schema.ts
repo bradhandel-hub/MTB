@@ -66,6 +66,8 @@ CREATE TABLE IF NOT EXISTS efforts (
   start_local TEXT NOT NULL,              -- when the segment started, Marin time
   elapsed_s REAL NOT NULL,
   track TEXT NOT NULL,                    -- JSON [[meters, seconds],...] for ghost races
+  gps_flag TEXT,                          -- why the GPS looks glitchy, if it does
+  review TEXT,                            -- admin decision on a flag: 'ok' | 'removed'
   UNIQUE (segment_id, activity_id, start_local)
 );
 CREATE INDEX IF NOT EXISTS efforts_board ON efforts(segment_id, start_local, elapsed_s);

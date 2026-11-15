@@ -5,7 +5,7 @@ import { classify, parseStravaSegmentId } from "./segments";
 let id = 0;
 const e = (rider: number, ebike: number, elapsed: number): EffortRow => ({
   id: ++id, segment_id: 1, rider_id: rider, first_name: `R${rider}`, last_name: "", avatar_url: null,
-  ebike, elapsed_s: elapsed, start_local: "2026-11-08T10:00:00", activity_distance_m: 0,
+  ebike, elapsed_s: elapsed, start_local: "2026-11-08T10:00:00", activity_distance_m: 0, activity_id: id, gps_flag: null, review: null,
 });
 
 const efforts = [e(1, 0, 190), e(1, 0, 185), e(1, 1, 180), e(2, 0, 178), e(3, 1, 175), e(3, 1, 200)];

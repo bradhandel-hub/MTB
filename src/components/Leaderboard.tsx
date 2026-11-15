@@ -18,6 +18,8 @@ export type LbRow = {
   elapsed_s: number;
   gap: number;
   start_local: string;
+  /** Set when the GPS looks glitchy and no admin has cleared it. */
+  gpsWarning: string | null;
 };
 
 const MAX_GHOSTS = 5;
@@ -52,6 +54,11 @@ export default function Leaderboard({ rows, meId, today, showAllHref, total }: {
                   {r.ebike ? <EBadge /> : null}
                 </span>
                 <span className="small muted">{when(r.start_local, today)}</span>
+                {r.gpsWarning && (
+                  <span className="small" style={{ color: "var(--gold)" }} title={r.gpsWarning}>
+                    ⚠ Possible GPS glitch ({r.gpsWarning})
+                  </span>
+                )}
               </span>
               <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
                 <span className="time" style={{ fontSize: 20 }}>{formatTime(r.elapsed_s)}</span>

@@ -3,7 +3,7 @@
 // jump the queue.
 import { all, one, run } from "./db";
 import { bboxIntersects, bboxOf, MARIN_BBOX, type BBox, type LatLng } from "./geo";
-import { matchSegment, MATCHER_VERSION, trackForWindow } from "./matcher";
+import { gpsCheck, matchSegment, MATCHER_VERSION, trackForWindow } from "./matcher";
 import { HISTORY_START, historyStartEpoch } from "./seasons";
 import { activeSegments, pointsOf, type Segment } from "./segments";
 import {
@@ -55,7 +55,7 @@ export async function deleteActivity(activityId: number) {
  * Matches one ride against the segments. Exported separately from the Strava
  * fetch so the demo seed and tests can feed in tracks directly.
  */
-export type SavedEffort = { segment: string; elapsed: number; source: "strava" | "trail-club" };
+export type SavedEffort = { segment: string; elapsed: number; source: "strava" | "trail-club"; gpsFlag: string | null };
 
 /**
  * Saves a ride and its segment times. For segments imported from Strava, Strava's own
@@ -91,11 +91,18 @@ export async function saveRide(
   );
 
   const saved: SavedEffort[] = [];
-  const insert = (seg: Segment, startLocal: string, elapsed: number, track: [number, number][]) =>
+  // An admin's "looks fine" / "removed" decision survives the ride being re-imported.
+  const reviews = new Map(
+    (await all<{ segment_id: number; start_local: string; review: string | null }>(
+      "SELECT segment_id, start_local, review FROM efforts WHERE activity_id = ? AND review IS NOT NULL",
+      [a.id],
+    )).map((r) => [`${r.segment_id}|${r.start_local}`, r.review]),
+  );
+  const insert = (seg: Segment, startLocal: string, elapsed: number, track: [number, number][], flag: string | null) =>
     run(
-      `INSERT OR REPLACE INTO efforts (segment_id, activity_id, rider_id, start_local, elapsed_s, track)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [seg.id, a.id, riderId, startLocal, elapsed, JSON.stringify(track)],
+      `INSERT OR REPLACE INTO efforts (segment_id, activity_id, rider_id, start_local, elapsed_s, track, gps_flag, review)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [seg.id, a.id, riderId, startLocal, elapsed, JSON.stringify(track), flag, reviews.get(`${seg.id}|${startLocal}`) ?? null],
     );
 
   for (const seg of segs) {
@@ -109,17 +116,20 @@ export async function saveRide(
         const tStart = a.start_date
           ? (Date.parse(se.start_date) - Date.parse(a.start_date)) / 1000
           : (Date.parse(`${localTime(se.start_date_local)}Z`) - startMs) / 1000;
-        const track = trackForWindow(pointsOf(seg), stream, tStart, se.elapsed_time);
-        await insert(seg, localTime(se.start_date_local), se.elapsed_time, track);
-        saved.push({ segment: seg.name, elapsed: se.elapsed_time, source: "strava" });
+        const points = pointsOf(seg);
+        const track = trackForWindow(points, stream, tStart, se.elapsed_time);
+        const flag = gpsCheck(points, stream, tStart, se.elapsed_time);
+        await insert(seg, localTime(se.start_date_local), se.elapsed_time, track, flag);
+        saved.push({ segment: seg.name, elapsed: se.elapsed_time, source: "strava", gpsFlag: flag });
       }
       continue;
     }
 
     for (const e of matchSegment(pointsOf(seg), stream)) {
       const effortStart = new Date(startMs + e.startOffset * 1000).toISOString().slice(0, 19);
-      await insert(seg, effortStart, e.elapsed, e.track);
-      saved.push({ segment: seg.name, elapsed: e.elapsed, source: "trail-club" });
+      const flag = gpsCheck(pointsOf(seg), stream, e.startOffset, e.elapsed);
+      await insert(seg, effortStart, e.elapsed, e.track, flag);
+      saved.push({ segment: seg.name, elapsed: e.elapsed, source: "trail-club", gpsFlag: flag });
     }
   }
   return saved;

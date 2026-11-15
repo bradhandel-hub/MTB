@@ -11,7 +11,7 @@
 // a 1 s watch and a sparse phone recording are timed fairly.
 
 /** Bump when timing rules change; stored times are then recalculated from Strava. */
-export const MATCHER_VERSION = 3;
+export const MATCHER_VERSION = 4;
 
 import { haversine, makeLineIndex, makeProjector, type LatLng } from "./geo";
 
@@ -194,6 +194,81 @@ function buildTrack(stream: Stream, s: number, e: number, t0: number, elapsed: n
   }
   track.push([Math.round(line.length * 10) / 10, elapsed]);
   return track;
+}
+
+// --- GPS sanity checks ---------------------------------------------------------
+// A GPS glitch that jumps the rider ahead makes Strava (and us) think they reached the
+// finish early, so the time is too fast. Dropouts under trees or privacy-zone gaps
+// don't: time keeps passing during the gap, so those are NOT flagged.
+
+/** Faster than this between two GPS points (m/s, about 56 mph) is a jump, not riding. */
+export const GPS_JUMP_SPEED = 25;
+/** Smallest jump down the trail we flag (m). Smaller ones are switchback GPS jitter. */
+export const MIN_SKIP = 120;
+/** An average this fast over a whole segment (m/s, about 34 mph) isn't believable. */
+export const MAX_AVERAGE_SPEED = 15;
+
+const mph = (ms: number) => Math.round(ms * 2.23694);
+
+/**
+ * Looks at the GPS points recorded during an effort and returns a short reason if the
+ * time looks like a GPS glitch, or null if it looks fine (or there's too little GPS
+ * to tell, e.g. hidden by a privacy zone).
+ */
+export function gpsCheck(segment: LatLng[], stream: Stream, tStart: number, elapsed: number): string | null {
+  const line = makeLineIndex(segment);
+  if (elapsed > 0 && line.length / elapsed > MAX_AVERAGE_SPEED) {
+    return `Averaged ${mph(line.length / elapsed)} mph, faster than anyone can ride this`;
+  }
+  const raw: number[] = [];
+  for (let i = 0; i < stream.time.length; i++) {
+    if (stream.time[i] >= tStart - 2 && stream.time[i] <= tStart + elapsed + 2) raw.push(i);
+  }
+  if (raw.length < 3) return null;
+  // Drop lone spikes: a point far from both neighbours while they're close together.
+  const P = stream.latlng;
+  const idx = raw.filter((i, k) => {
+    const a = raw[k - 1];
+    const c = raw[k + 1];
+    if (a === undefined || c === undefined) return true;
+    const out = Math.min(haversine(P[a], P[i]), haversine(P[i], P[c]));
+    return !(out > 50 && haversine(P[a], P[c]) < out / 2);
+  });
+
+  // 1. Teleporting: two consecutive points impossibly far apart for the time between
+  //    them, and the track carries on from the new spot. (A single wild point that
+  //    snaps straight back is common and doesn't change anyone's time.)
+  for (let k = 0; k + 1 < idx.length; k++) {
+    const a = idx[k];
+    const b = idx[k + 1];
+    const dt = stream.time[b] - stream.time[a];
+    const d = haversine(stream.latlng[a], stream.latlng[b]);
+    if (!(dt > 0 && d > 75 && d / dt > GPS_JUMP_SPEED)) continue;
+    const c = idx[k + 2];
+    const snapsBack = c !== undefined && haversine(stream.latlng[c], stream.latlng[a]) < haversine(stream.latlng[c], stream.latlng[b]);
+    if (!snapsBack) return `GPS jumped ${Math.round(d)} m in ${dt}s`;
+  }
+
+  // 2. Skipping ahead along the trail (e.g. snapping onto the switchback below) and
+  //    staying there. A single stray point that snaps back isn't flagged.
+  const along: number[] = [];
+  let prev = 0;
+  let prevT = stream.time[idx[0]];
+  for (const i of idx) {
+    const dt = Math.max(1, stream.time[i] - prevT);
+    prev = line.project(stream.latlng[i], prev - 100, prev + 400 + GPS_JUMP_SPEED * dt).along;
+    along.push(prev);
+    prevT = stream.time[i];
+  }
+  for (let k = 0; k + 1 < idx.length; k++) {
+    const dt = stream.time[idx[k + 1]] - stream.time[idx[k]];
+    const ahead = along[k + 1] - along[k];
+    // 120 m: bigger than the jitter between the legs of a tight switchback.
+    if (dt <= 0 || ahead < MIN_SKIP || ahead / dt <= GPS_JUMP_SPEED) continue;
+    const stays = along.slice(k + 2, k + 5).every((x) => x >= along[k + 1] - 40);
+    if (stays) return `GPS skipped ${Math.round(ahead)} m down the trail in ${dt}s`;
+  }
+  return null;
 }
 
 /**

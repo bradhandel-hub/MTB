@@ -17,6 +17,10 @@ export default function TimingNote() {
           your GPS, race-style: start line to finish line.
         </li>
         <li>
+          <b>⚠ GPS glitch flags.</b> If the GPS track jumps ahead (which can make a run look faster than it was), the
+          time gets a ⚠ until an admin checks it. Admins can keep it or remove it.
+        </li>
+        <li>
           <b>Which rides count:</b> bike rides since Nov 1, 2025, shared with Followers or Everyone. Rides set to “Only
           you” stay private.
         </li>

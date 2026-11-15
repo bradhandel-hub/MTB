@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchSegment, type Stream } from "./matcher";
+import { gpsCheck, matchSegment, type Stream } from "./matcher";
 import { makeLineIndex, type LatLng } from "./geo";
 
 // --- Synthetic trail near Fairfax -------------------------------------------------
@@ -192,5 +192,47 @@ describe("passing the trailhead more than once", () => {
     const { stream } = ride(path, { speed: 5, noise: 3, seed: 21 });
     const [e] = matchSegment(trail, stream);
     expect(Math.abs(e.elapsed - trailLength / 5)).toBeLessThan(1.5);
+  });
+});
+
+describe("GPS glitch flags", () => {
+  // Time on the trail at 5 m/s, trail starts at t = 0.
+  const clean = (seed: number, noise = 4) => ride(trail, { speed: 5, noise, seed }).stream;
+  const elapsed = trailLength / 5;
+
+  it("doesn't flag normal rides, even with noisy GPS", () => {
+    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) expect(gpsCheck(trail, clean(seed, 8), 0, elapsed)).toBeNull();
+  });
+
+  it("flags a GPS jump ahead down the trail", () => {
+    const s = clean(3);
+    // From 40 s on, the GPS reads 250 m further down the trail than the rider really is.
+    const line = makeLineIndex(trail);
+    for (let i = 40; i < s.time.length; i++) {
+      const [lat, lng] = line.pointAt(Math.min(line.length, s.time[i] * 5 + 250));
+      s.latlng[i] = [lat, lng];
+    }
+    expect(gpsCheck(trail, s, 0, elapsed)).toMatch(/GPS (jumped|skipped)/);
+  });
+
+  it("doesn't flag a dropout under the trees (time keeps passing)", () => {
+    const s = clean(4);
+    s.latlng.splice(60, 30);
+    s.time.splice(60, 30); // 30 s with no GPS
+    expect(gpsCheck(trail, s, 0, elapsed)).toBeNull();
+  });
+
+  it("doesn't flag a ride with no GPS on the trail (privacy zone)", () => {
+    expect(gpsCheck(trail, { latlng: [], time: [] }, 0, elapsed)).toBeNull();
+  });
+
+  it("doesn't flag one stray point that lands on the switchback below", () => {
+    const s = clean(5);
+    s.latlng[50] = m(140, -75); // on the next leg down, ~40 m away
+    expect(gpsCheck(trail, s, 0, elapsed)).toBeNull();
+  });
+
+  it("flags an impossible average speed", () => {
+    expect(gpsCheck(trail, clean(6), 0, trailLength / 20)).toMatch(/mph/);
   });
 });

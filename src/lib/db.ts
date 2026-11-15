@@ -19,7 +19,11 @@ function getClient(): Client {
 async function migrate(c: Client) {
   await c.executeMultiple(SCHEMA);
   // Columns added after launch. SQLite has no "ADD COLUMN IF NOT EXISTS".
-  for (const sql of ["ALTER TABLE segments ADD COLUMN hazardous INTEGER NOT NULL DEFAULT 0"]) {
+  for (const sql of [
+    "ALTER TABLE segments ADD COLUMN hazardous INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE efforts ADD COLUMN gps_flag TEXT",
+    "ALTER TABLE efforts ADD COLUMN review TEXT",
+  ]) {
     try {
       await c.execute(sql);
     } catch (err) {

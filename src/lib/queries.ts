@@ -18,12 +18,19 @@ export type EffortRow = {
   elapsed_s: number;
   start_local: string;
   activity_distance_m: number;
+  activity_id: number;
+  /** Why the GPS looks glitchy, or null. Shown unless an admin marked it fine. */
+  gps_flag: string | null;
+  review: "ok" | "removed" | null;
 };
+
+/** Times an admin removed after a GPS review never count anywhere. */
+const COUNTS = "COALESCE(e.review, '') != 'removed'";
 
 const EFFORT_SELECT = `
   SELECT e.id, e.segment_id, e.rider_id, r.first_name, r.last_name, r.avatar_url,
          COALESCE(a.ebike_override, a.is_ebike) AS ebike, e.elapsed_s, e.start_local,
-         a.distance_m AS activity_distance_m
+         a.distance_m AS activity_distance_m, e.activity_id, e.gps_flag, e.review
   FROM efforts e
   JOIN activities a ON a.id = e.activity_id
   JOIN riders r ON r.id = e.rider_id`;
@@ -37,7 +44,7 @@ export function initials(r: { first_name: string; last_name: string }) {
 }
 
 async function effortsIn(range: DateRange, segmentId?: number): Promise<EffortRow[]> {
-  const where: string[] = [];
+  const where: string[] = [COUNTS];
   const args: (string | number)[] = [];
   if (segmentId) {
     where.push("e.segment_id = ?");
@@ -152,7 +159,7 @@ export async function profile(riderId: number, season: DateRange): Promise<Profi
   const seasonEfforts = await effortsIn(season);
   const mineAllTime = await all<{ segment_id: number; ebike: number; best: number }>(
     `SELECT e.segment_id, COALESCE(a.ebike_override, a.is_ebike) AS ebike, MIN(e.elapsed_s) AS best
-     FROM efforts e JOIN activities a ON a.id = e.activity_id WHERE e.rider_id = ? GROUP BY 1, 2`,
+     FROM efforts e JOIN activities a ON a.id = e.activity_id WHERE e.rider_id = ? AND ${COUNTS} GROUP BY 1, 2`,
     [riderId],
   );
   return segments.map((segment) => {
@@ -173,10 +180,25 @@ export type GhostEffort = EffortRow & { track: [number, number][] };
 export async function ghostEfforts(ids: number[]): Promise<GhostEffort[]> {
   if (!ids.length) return [];
   const rows = await all<EffortRow & { track: string }>(
-    `${EFFORT_SELECT.replace("e.start_local,", "e.start_local, e.track,")} WHERE e.id IN (${ids.map(() => "?").join(",")})`,
+    `${EFFORT_SELECT.replace("e.start_local,", "e.start_local, e.track,")} WHERE ${COUNTS} AND e.id IN (${ids.map(() => "?").join(",")})`,
     ids,
   );
   return rows.map((r) => ({ ...r, track: JSON.parse(r.track) }));
 }
 
 export { inRange };
+
+/** A flagged time still shows a warning unless an admin marked it "looks fine". */
+export const showsGpsWarning = (e: { gps_flag: string | null; review: string | null }) => !!e.gps_flag && e.review !== "ok";
+
+export type FlaggedEffort = EffortRow & { segment_name: string };
+
+/** GPS-flagged times for the admin review list: waiting first, then removed ones. */
+export async function flaggedEfforts(): Promise<FlaggedEffort[]> {
+  return all<FlaggedEffort>(
+    `${EFFORT_SELECT.replace("e.review", "e.review, s.name AS segment_name")}
+     JOIN segments s ON s.id = e.segment_id
+     WHERE e.gps_flag IS NOT NULL AND COALESCE(e.review, '') != 'ok'
+     ORDER BY e.review IS NOT NULL, e.start_local DESC LIMIT 100`,
+  );
+}

@@ -7,7 +7,7 @@ import { BackIcon } from "@/components/Icons";
 import { BikeToggle, BottomNav, KindTag, RangeTabs, parseBike, withParams } from "@/components/ui";
 import { requireRider } from "@/lib/auth";
 import { feet, miles } from "@/lib/format";
-import { leaderboard, riderName } from "@/lib/queries";
+import { leaderboard, riderName, showsGpsWarning } from "@/lib/queries";
 import { defaultTabs, parseRange, todayInMarin } from "@/lib/seasons";
 import { getSegmentById, pointsOf } from "@/lib/segments";
 
@@ -63,6 +63,7 @@ export default async function SegmentPage({ params, searchParams }: { params: Pr
         rows={shown.map((r) => ({
           id: r.id, rank: r.rank, rider_id: r.rider_id, name: riderName(r), first_name: r.first_name, last_name: r.last_name,
           avatar_url: r.avatar_url, ebike: r.ebike, elapsed_s: r.elapsed_s, gap: r.gap, start_local: r.start_local,
+          gpsWarning: showsGpsWarning(r) ? r.gps_flag : null,
         }))}
         meId={me.id}
         today={today}

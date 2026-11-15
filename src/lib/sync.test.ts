@@ -109,7 +109,7 @@ describe("saving a ride", () => {
       { ...ride, segment_efforts: [{ segment: { id: 9087084 }, elapsed_time: 729, start_date: "2026-07-11T15:20:00Z", start_date_local: "2026-07-11T08:20:00Z" }] },
       { latlng: [], time: [] }, // e.g. GPS hidden by a privacy zone
     );
-    expect(saved).toEqual([{ segment: "Split Rock", elapsed: 729, source: "strava" }]);
+    expect(saved).toEqual([{ segment: "Split Rock", elapsed: 729, source: "strava", gpsFlag: null }]);
     expect(await all("SELECT elapsed_s, start_local FROM efforts")).toEqual([{ elapsed_s: 729, start_local: "2026-07-11T08:20:00" }]);
   });
 
@@ -127,5 +127,33 @@ describe("saving a ride", () => {
     expect(isCandidateRide({ sport_type: "MountainBikeRide", start_latlng: [37.98, -122.59] })).toBe(true);
     expect(isCandidateRide({ sport_type: "MountainBikeRide", start_latlng: [34.05, -118.24] })).toBe(false);
     expect(isCandidateRide({ sport_type: "Run", start_latlng: [37.98, -122.59] })).toBe(false);
+  });
+});
+
+describe("GPS review decisions", () => {
+  beforeEach(() => useDatabase(":memory:"));
+
+  it("removed times disappear from the boards and stay removed after a re-import", async () => {
+    const { saveRide } = await import("./sync");
+    const { leaderboard } = await import("./queries");
+    const { ALL_TIME } = await import("./seasons");
+    await run("INSERT INTO riders (id, first_name, refresh_token) VALUES (1, 'G', 't')");
+    await run(
+      `INSERT INTO segments (id, name, kind, strava_segment_id, polyline, distance_m, min_lat, min_lng, max_lat, max_lng)
+       VALUES (1, 'Split Rock', 'descent', 9087084, '[[37.99,-122.6],[37.98,-122.59]]', 1400, 37.98, -122.6, 37.99, -122.59)`,
+    );
+    const ride = {
+      id: 42, name: "Ride", sport_type: "MountainBikeRide", start_date_local: "2026-07-11T08:00:00Z", start_date: "2026-07-11T15:00:00Z",
+      distance: 20000, moving_time: 5000, total_elevation_gain: 600,
+      segment_efforts: [{ segment: { id: 9087084 }, elapsed_time: 400, start_date: "2026-07-11T15:20:00Z", start_date_local: "2026-07-11T08:20:00Z" }],
+    };
+    await saveRide(1, ride, { latlng: [], time: [] });
+    expect(await leaderboard(1, ALL_TIME, "all")).toHaveLength(1);
+
+    await run("UPDATE efforts SET review = 'removed'");
+    expect(await leaderboard(1, ALL_TIME, "all")).toHaveLength(0);
+
+    await saveRide(1, ride, { latlng: [], time: [] }); // e.g. the rider edits the ride on Strava
+    expect(await leaderboard(1, ALL_TIME, "all")).toHaveLength(0);
   });
 });
